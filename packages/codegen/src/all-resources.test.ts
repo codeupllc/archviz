@@ -33,6 +33,7 @@ describe('all-resources fixture', () => {
     expect(hcl).toMatch(/resource "aws_lambda_function" "worker" \{[\s\S]*?role\s+= aws_iam_role\.lambda_role\.arn/);
     expect(hcl).toMatch(/resource "aws_dynamodb_table" "users" \{[\s\S]*?name\s+= "users"/);
     expect(hcl).toMatch(/resource "aws_ssm_parameter" "api_key" \{[\s\S]*?value\s+= "placeholder"/);
+    expect(hcl).toMatch(/resource "aws_sqs_queue" "jobs" \{[\s\S]*?name\s+= "app-jobs"/);
 
     // DynamoDB requires an attribute definition per key
     expect(hcl).toMatch(/attribute \{\s+name = "id"\s+type = "S"/);

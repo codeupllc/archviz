@@ -186,6 +186,17 @@ function Parameter(props: IconProps): ReactElement {
   );
 }
 
+function Sqs(props: IconProps): ReactElement {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3.5" y="5" width="5.5" height="14" rx="1.2" />
+      <rect x="9.25" y="5" width="5.5" height="14" rx="1.2" />
+      <rect x="15" y="5" width="5.5" height="14" rx="1.2" />
+      <path d="M6.25 9h0.01M6.25 12h0.01M6.25 15h0.01M12 9h0.01M12 12h0.01M12 15h0.01M17.75 9h0.01M17.75 12h0.01M17.75 15h0.01" />
+    </svg>
+  );
+}
+
 function Generic(props: IconProps): ReactElement {
   return (
     <svg {...base} {...props}>
@@ -212,6 +223,7 @@ const ICONS: Record<string, (props: IconProps) => ReactElement> = {
   ecr: Registry,
   secret: Secret,
   parameter: Parameter,
+  sqs: Sqs,
 };
 
 export function ResourceIcon({ icon, ...props }: { icon: string } & IconProps): ReactElement {

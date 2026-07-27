@@ -240,6 +240,18 @@ export function buildAllResourcesDocument(): ArchvizDocument {
         name: 'api-key',
         properties: { parameter_name: '/app/api-key', type: 'SecureString', value: 'placeholder' },
       }),
+      resource({
+        id: 'sqs-1',
+        type: 'aws/sqs-queue',
+        name: 'jobs',
+        properties: {
+          queue_name: 'app-jobs',
+          fifo_queue: false,
+          delay_seconds: 0,
+          visibility_timeout_seconds: 30,
+          message_retention_seconds: 345600,
+        },
+      }),
     ],
     relationships: [
       { id: 'r-ec2-sg', relationship: 'attached-to', sourceId: 'ec2-1', targetId: 'sg-1' },
@@ -257,6 +269,7 @@ export function buildAllResourcesDocument(): ArchvizDocument {
       { id: 'r-tg-ec2', relationship: 'forwards-to', sourceId: 'tg-1', targetId: 'ec2-1' },
       { id: 'r-lambda-role', relationship: 'assumes', sourceId: 'lambda-1', targetId: 'role-lambda' },
       { id: 'r-lambda-ddb', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'ddb-1' },
+      { id: 'r-lambda-sqs', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'sqs-1' },
       { id: 'r-td-ecr', relationship: 'pulls-image', sourceId: 'taskdef-1', targetId: 'ecr-1' },
       {
         id: 'r-td-exec',

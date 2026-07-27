@@ -50,6 +50,9 @@ export function buildDefaultOutputs(
       case 'aws/ecs-cluster':
         push(`${name}_cluster_id`, def.terraform.resourceType, name, 'id');
         break;
+      case 'aws/sqs-queue':
+        push(`${name}_queue_url`, def.terraform.resourceType, name, 'url');
+        break;
       default:
         break;
     }

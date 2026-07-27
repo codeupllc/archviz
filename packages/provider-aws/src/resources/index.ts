@@ -17,3 +17,4 @@ export { ecsTaskDefinition } from './ecs-task-definition.js';
 export { ecsService } from './ecs-service.js';
 export { secretsManagerSecret } from './secrets-manager.js';
 export { ssmParameter } from './ssm-parameter.js';
+export { sqsQueue } from './sqs.js';

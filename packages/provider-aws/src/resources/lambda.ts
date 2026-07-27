@@ -34,7 +34,11 @@ export const lambdaFunction = defineResource({
     },
     {
       relationship: 'reads-from',
-      targets: [{ type: 'aws/s3-bucket' }, { type: 'aws/dynamodb-table' }],
+      targets: [
+        { type: 'aws/s3-bucket' },
+        { type: 'aws/dynamodb-table' },
+        { type: 'aws/sqs-queue' },
+      ],
       materialize: { strategy: 'annotation' },
       label: 'Reads from',
     },

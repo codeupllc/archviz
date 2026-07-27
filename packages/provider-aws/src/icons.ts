@@ -28,4 +28,5 @@ export const ICON_LABELS: Record<string, string> = {
   ecs: 'ECS',
   secret: 'SEC',
   parameter: 'SSM',
+  sqs: 'SQS',
 };
