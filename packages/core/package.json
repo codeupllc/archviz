@@ -1,6 +1,7 @@
 {
   "name": "@archviz/core",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Document model, constraint engine, and validator",
   "type": "module",
   "main": "./dist/index.js",

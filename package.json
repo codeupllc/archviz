@@ -2,6 +2,7 @@
   "name": "archviz",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Open-source visual infrastructure builder that generates Terraform",
   "scripts": {
     "build": "pnpm -r run build",

@@ -167,3 +167,7 @@ Archviz turns a diagram into reviewable Terraform. Everything below is left out 
 - **No secret storage.** Promoted variables are emitted without defaults so a value never gets baked into committed HCL; the real value lives in `terraform.tfvars`, which is gitignored. Secrets belong in Secrets Manager or SSM, which Archviz wires up by ARN reference — see [Secrets example](#secrets-example).
 
 If you're extending this, the natural next step is generating an opt-in `backend` block (a codegen concern, so it stays on the right side of this line) before anything that touches apply.
+
+## License
+
+[MIT](LICENSE) © 2026 Joseph Behman

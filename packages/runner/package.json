@@ -1,6 +1,7 @@
 {
   "name": "@archviz/runner",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Local companion CLI that runs terraform plan for Archviz Studio",
   "type": "module",
   "main": "./dist/index.js",

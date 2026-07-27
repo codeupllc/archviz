@@ -1,6 +1,7 @@
 {
   "name": "@archviz/codegen",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Terraform HCL code generator",
   "type": "module",
   "main": "./dist/index.js",

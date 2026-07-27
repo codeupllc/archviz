@@ -1,6 +1,7 @@
 {
   "name": "@archviz/schema",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Meta-schema types, defineResource helper, and ResourceRegistry",
   "type": "module",
   "main": "./dist/index.js",

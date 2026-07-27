@@ -1,6 +1,7 @@
 {
   "name": "@archviz/provider-aws",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "AWS resource definitions and materializers",
   "type": "module",
   "main": "./dist/index.js",
