@@ -4,11 +4,12 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { assertSafeRelativePath, writeGeneratedFiles } from './files.js';
 import {
-  ensurePlaceholderVariables,
+  collectDeclaredVariables,
   isValidVariableName,
   projectSlug,
   readManifest,
   removeStaleGeneratedFiles,
+  syncPlaceholderVariables,
   writeManifest,
   type ProjectRef,
 } from './workspace.js';
@@ -219,11 +220,21 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
           files: Object.keys(files),
         });
 
-        const created = await ensurePlaceholderVariables(workspaceDir, requiredVariables);
+        const { created, removed: staleVars } = await syncPlaceholderVariables(
+          workspaceDir,
+          requiredVariables,
+          collectDeclaredVariables(files),
+        );
         if (created.length > 0) {
           emit({
             type: 'warning',
             message: `Created placeholder value(s) in terraform.tfvars for: ${created.join(', ')} — edit ${path.join(workspaceDir, 'terraform.tfvars')} with real values before applying.`,
+          });
+        }
+        if (staleVars.length > 0) {
+          emit({
+            type: 'info',
+            message: `Removed placeholder(s) from terraform.tfvars for variable(s) the config no longer declares: ${staleVars.join(', ')}`,
           });
         }
 

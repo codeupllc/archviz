@@ -6,8 +6,9 @@ export {
   readManifest,
   writeManifest,
   removeStaleGeneratedFiles,
-  ensurePlaceholderVariables,
+  collectDeclaredVariables,
+  syncPlaceholderVariables,
   isValidVariableName,
   PLACEHOLDER_VALUE,
 } from './workspace.js';
-export type { ProjectRef, WorkspaceManifest } from './workspace.js';
+export type { ProjectRef, TfvarsSync, WorkspaceManifest } from './workspace.js';

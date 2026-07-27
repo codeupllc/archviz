@@ -138,7 +138,7 @@ pnpm runner --dir <some-folder>   # or any folder you like
 The runner binds to `127.0.0.1:4180` (only the studio origin is allowed to talk to it) and uses your local `terraform` binary and AWS credentials — nothing sensitive ever reaches the browser. Once it's running, the **Plan** button in the studio's Terraform panel lights up. Clicking it:
 
 - **Plans each diagram in its own workspace** — `<root>/<diagram-name-slug>/` — so state, provider caches, and tfvars never cross-contaminate between projects. The runner keeps a `.archviz-manifest.json` per workspace, deletes *its own* stale generated files on re-plan (e.g. `database.tf` after you remove the last database node), never touches files you put there (backend config, tfvars), and warns if a different diagram targets the same workspace folder.
-- **Seeds required variables**: any generated `variable` without a default (sensitive secret values, promoted properties with empty values) gets a `CHANGEME` placeholder appended to that workspace's `terraform.tfvars`, with a warning in the plan panel. Edit the file with real values before applying — your edits are never overwritten.
+- **Seeds required variables**: any generated `variable` without a default (sensitive secret values, promoted properties with empty values) gets a `CHANGEME` placeholder appended to that workspace's `terraform.tfvars`, with a warning in the plan panel. Edit the file with real values before applying — your edits are never overwritten. When a variable stops being declared (you renamed it, or removed the resource), the runner drops the placeholder *it* stamped, so a rename doesn't leave a line behind that Terraform reports as `Value for undeclared variable` on every later plan. Lines it didn't stamp are always left alone.
 - Runs `terraform init` (first time per workspace) and `terraform plan -detailed-exitcode`, streaming output live into a collapsible panel with a summary badge ("Plan: 1 to add, 0 to change, 0 to destroy" / "No changes"). Workspaces with real backend/state show a true diff against deployed infrastructure.
 
 Plan is available for the single-file and by-category layouts; the multi-service directories layout is N independent root modules, so plan each service from the terminal instead.
@@ -156,3 +156,14 @@ terraform apply
 ```
 
 For the multi-service directories layout, apply each service directory in dependency order (e.g. `network/` before `api/`) — the generated top-level README lists them.
+
+## Scope and non-goals
+
+Archviz turns a diagram into reviewable Terraform. Everything below is left out on purpose, not missing by accident:
+
+- **No `apply`.** The runner shells out to `init` and `plan` only. Applying infrastructure deserves a review step, an approval flow, and an audit trail, none of which belong in a diagramming tool.
+- **No remote state or locking.** Archviz doesn't generate or manage an S3/DynamoDB backend. A backend has to exist before it can hold state, teams bootstrap that differently, and picking one for you would be wrong more often than right. Add your own `backend.tf` to a plan workspace — the runner treats files it didn't write as yours and won't touch them.
+- **State is incidental to what this tool proves.** Planning against empty state is the useful signal for a generator: it confirms the providers accept the HCL and every reference resolves. Point the runner at a workspace with a real backend and you get a true diff instead.
+- **No secret storage.** Promoted variables are emitted without defaults so a value never gets baked into committed HCL; the real value lives in `terraform.tfvars`, which is gitignored. Secrets belong in Secrets Manager or SSM, which Archviz wires up by ARN reference — see [Secrets example](#secrets-example).
+
+If you're extending this, the natural next step is generating an opt-in `backend` block (a codegen concern, so it stays on the right side of this line) before anything that touches apply.

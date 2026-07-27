@@ -208,6 +208,42 @@ describe('runner HTTP API', () => {
     expect(second.events.find((e) => e.type === 'warning')).toBeUndefined();
   });
 
+  it('prunes its own placeholders once the config stops declaring the variable', async () => {
+    const project = { id: 'proj-a', name: 'demo' };
+    const config = 'variable "ssm1_val" {}\n';
+    await runPlan({ 'main.tf': config }, { project, requiredVariables: ['ssm1_val'] });
+
+    const tfvarsPath = path.join(tmpDir, 'demo', 'terraform.tfvars');
+    expect(await fs.readFile(tfvarsPath, 'utf8')).toContain('ssm1_val = "CHANGEME"');
+
+    // The property is re-promoted under a new name: the old line would otherwise
+    // linger and Terraform would report "Value for undeclared variable".
+    const { events } = await runPlan(
+      { 'main.tf': 'variable "ssm1_value" {}\n' },
+      { project, requiredVariables: ['ssm1_value'] },
+    );
+
+    const tfvars = await fs.readFile(tfvarsPath, 'utf8');
+    expect(tfvars).not.toContain('ssm1_val =');
+    expect(tfvars).toContain('ssm1_value = "CHANGEME"');
+
+    const info = events.find((e) => e.type === 'info' && 'message' in e && e.message.includes('no longer declares'));
+    expect(info && 'message' in info && info.message).toContain('ssm1_val');
+  });
+
+  it('keeps a value the user edited even when its variable disappears', async () => {
+    const project = { id: 'proj-a', name: 'demo' };
+    const tfvarsPath = path.join(tmpDir, 'demo', 'terraform.tfvars');
+    await fs.mkdir(path.join(tmpDir, 'demo'), { recursive: true });
+    await fs.writeFile(tfvarsPath, 'db_pass = "real-secret"\n');
+
+    await runPlan({ 'main.tf': '# no variables at all' }, { project });
+
+    // Unstamped lines are never touched — losing a real secret to silence a
+    // warning is the worse trade.
+    expect(await fs.readFile(tfvarsPath, 'utf8')).toContain('db_pass = "real-secret"');
+  });
+
   it('warns when a different diagram plans into the same workspace', async () => {
     await runPlan({ 'main.tf': '# a' }, { project: { id: 'proj-a', name: 'demo' } });
     const { events } = await runPlan({ 'main.tf': '# b' }, { project: { id: 'proj-b', name: 'demo' } });

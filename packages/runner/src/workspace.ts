@@ -71,43 +71,88 @@ export async function removeStaleGeneratedFiles(
 
 const TFVARS_ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=/;
 const VALID_VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+const VARIABLE_DECLARATION = /^\s*variable\s+"([^"]+)"/gm;
+
+/** Comment stamped on placeholder lines so the runner can recognise its own later. */
+const PLACEHOLDER_MARKER = 'placeholder created by archviz-runner';
 
 export function isValidVariableName(name: string): boolean {
   return VALID_VARIABLE_NAME.test(name);
 }
 
+/** Input variables the generated config declares, used to spot tfvars entries that no longer correspond to anything. */
+export function collectDeclaredVariables(files: Record<string, string>): Set<string> {
+  const declared = new Set<string>();
+  for (const [name, content] of Object.entries(files)) {
+    if (!name.endsWith('.tf')) continue;
+    for (const match of content.matchAll(VARIABLE_DECLARATION)) {
+      if (match[1]) declared.add(match[1]);
+    }
+  }
+  return declared;
+}
+
+export interface TfvarsSync {
+  created: string[];
+  removed: string[];
+}
+
 /**
- * Ensures every required input variable has an entry in the workspace's
- * terraform.tfvars, appending placeholders for missing ones so plan can run.
- * Existing assignments are never modified. Returns the names created.
+ * Reconciles the workspace's terraform.tfvars with the config's input
+ * variables: appends a placeholder for every required variable that has no
+ * assignment yet, and drops placeholder lines the runner itself created for
+ * variables the config no longer declares. Without the second half, renaming a
+ * promoted property leaves the old line behind and every later plan reports
+ * "Value for undeclared variable".
+ *
+ * Lines the runner didn't stamp are never removed, so a value the user filled
+ * in survives even once its variable is gone — losing a real secret to make a
+ * warning go away is the worse trade.
  */
-export async function ensurePlaceholderVariables(
+export async function syncPlaceholderVariables(
   dir: string,
   requiredVariables: string[],
-): Promise<string[]> {
-  if (requiredVariables.length === 0) return [];
-
+  declaredVariables: Set<string> | null = null,
+): Promise<TfvarsSync> {
   const tfvarsPath = path.join(dir, TFVARS_FILE);
   let existing = '';
   try {
     existing = await fs.readFile(tfvarsPath, 'utf8');
   } catch {
-    // no tfvars yet — will be created
+    // no tfvars yet — written below only if something needs seeding
   }
+
+  const lines = existing === '' ? [] : existing.replace(/\n$/, '').split('\n');
+
+  // Anything still required counts as live even if it is missing from the
+  // declared set, so the two inputs disagreeing can never make a placeholder
+  // get pruned and immediately re-seeded.
+  const required = new Set(requiredVariables);
+  const removed: string[] = [];
+  const kept = lines.filter((line) => {
+    const name = TFVARS_ASSIGNMENT.exec(line)?.[1];
+    if (!name || !declaredVariables) return true;
+    if (declaredVariables.has(name) || required.has(name)) return true;
+    if (!line.includes(PLACEHOLDER_MARKER)) return true;
+    removed.push(name);
+    return false;
+  });
 
   const assigned = new Set<string>();
-  for (const line of existing.split('\n')) {
-    const match = TFVARS_ASSIGNMENT.exec(line);
-    if (match?.[1]) assigned.add(match[1]);
+  for (const line of kept) {
+    const name = TFVARS_ASSIGNMENT.exec(line)?.[1];
+    if (name) assigned.add(name);
   }
 
-  const missing = requiredVariables.filter((name) => !assigned.has(name));
-  if (missing.length === 0) return [];
+  const created = requiredVariables.filter((name) => !assigned.has(name));
+  if (created.length === 0 && removed.length === 0) return { created, removed };
 
-  const lines = missing.map(
-    (name) => `${name} = "${PLACEHOLDER_VALUE}" # placeholder created by archviz-runner — replace before apply`,
-  );
-  const prefix = existing === '' || existing.endsWith('\n') ? existing : `${existing}\n`;
-  await fs.writeFile(tfvarsPath, `${prefix}${lines.join('\n')}\n`, 'utf8');
-  return missing;
+  const next = [
+    ...kept,
+    ...created.map(
+      (name) => `${name} = "${PLACEHOLDER_VALUE}" # ${PLACEHOLDER_MARKER} — replace before apply`,
+    ),
+  ];
+  await fs.writeFile(tfvarsPath, next.length === 0 ? '' : `${next.join('\n')}\n`, 'utf8');
+  return { created, removed };
 }
