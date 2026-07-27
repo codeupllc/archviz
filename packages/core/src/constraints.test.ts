@@ -248,6 +248,49 @@ describe('constraint engine', () => {
     expect(ami?.code).toBe('required-property');
   });
 
+  it('a property promoted to a variable satisfies required without a literal', () => {
+    const doc: ArchvizDocument = {
+      ...createEmptyDocument(),
+      resources: [
+        res('vpc-1', 'aws/vpc', {
+          properties: { cidr_block: '' },
+          variableBindings: { cidr_block: 'vpc_cidr' },
+        }),
+      ],
+    };
+    const result = validate(doc, registry);
+    // Materialized as `var.vpc_cidr`, so the empty literal is never emitted.
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    const warning = result.diagnostics.find((d) => d.property === 'cidr_block');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.code).toBe('variable-needs-value');
+    expect(warning?.message).toContain('var.vpc_cidr');
+  });
+
+  it('a bound property skips format validation it would fail as a literal', () => {
+    const doc: ArchvizDocument = {
+      ...createEmptyDocument(),
+      resources: [
+        res('vpc-1', 'aws/vpc', {
+          properties: { cidr_block: 'not-a-cidr' },
+          variableBindings: { cidr_block: 'vpc_cidr' },
+        }),
+      ],
+    };
+    const result = validate(doc, registry);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('still errors on a missing required property that is not bound', () => {
+    const doc: ArchvizDocument = {
+      ...createEmptyDocument(),
+      resources: [res('vpc-1', 'aws/vpc', { properties: { cidr_block: '' } })],
+    };
+    const result = validate(doc, registry);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.code).toBe('required-property');
+  });
+
   it('validate accepts a well-formed graph', () => {
     const doc: ArchvizDocument = {
       ...createEmptyDocument(),

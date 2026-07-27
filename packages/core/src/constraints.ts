@@ -379,6 +379,26 @@ function validateProperties(
       value === '' ||
       (Array.isArray(value) && value.length === 0);
 
+    // A property promoted to a Terraform variable materializes as `var.<name>`,
+    // so the stored literal is never emitted: an empty one is not a missing
+    // value, and format checks can't run against a reference. Warn instead when
+    // there is no literal to become the variable's default, because then the
+    // value has to arrive at plan time via tfvars.
+    const boundVariable = resource.variableBindings?.[prop.name];
+    if (boundVariable) {
+      if (empty) {
+        diagnostics.push({
+          code: 'variable-needs-value',
+          message: `Property "${prop.label ?? prop.name}" comes from var.${boundVariable}, which has no default — set it in terraform.tfvars (archviz-runner seeds a "CHANGEME" placeholder)`,
+          severity: 'warning',
+          tier: 'semantic',
+          resourceId: resource.id,
+          property: prop.name,
+        });
+      }
+      continue;
+    }
+
     if (prop.required && empty) {
       diagnostics.push({
         code: 'required-property',
