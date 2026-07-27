@@ -393,6 +393,14 @@ export function applyMaterializers(
         extra.push({ block, category: sourceDef.display.category, ownerResourceId: source.id });
       }
     }
+
+    // Surface WARNING comments on the source resource (annotation-only comments stay silent).
+    if (result.comment?.startsWith('WARNING:')) {
+      const block = blocksByResourceId.get(source.id);
+      if (block) {
+        block.comment = block.comment ? `${block.comment}\n${result.comment}` : result.comment;
+      }
+    }
   }
 
   return extra;

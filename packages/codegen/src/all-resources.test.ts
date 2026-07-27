@@ -34,6 +34,14 @@ describe('all-resources fixture', () => {
     expect(hcl).toMatch(/resource "aws_dynamodb_table" "users" \{[\s\S]*?name\s+= "users"/);
     expect(hcl).toMatch(/resource "aws_ssm_parameter" "api_key" \{[\s\S]*?value\s+= "placeholder"/);
     expect(hcl).toMatch(/resource "aws_sqs_queue" "jobs" \{[\s\S]*?name\s+= "app-jobs"/);
+    expect(hcl).toContain('resource "aws_iam_role_policy" "worker_sqs_consume_jobs"');
+    expect(hcl).toContain('sqs:ReceiveMessage');
+    expect(hcl).toContain('resource "aws_iam_role_policy" "worker_sqs_produce_jobs"');
+    expect(hcl).toContain('sqs:SendMessage');
+    expect(hcl).toContain('resource "aws_iam_role_policy" "web_s3_consume_assets"');
+    expect(hcl).toContain('s3:GetObject');
+    expect(hcl).toContain('resource "aws_iam_role_policy" "worker_dynamodb_consume_users"');
+    expect(hcl).toContain('dynamodb:GetItem');
 
     // DynamoDB requires an attribute definition per key
     expect(hcl).toMatch(/attribute \{\s+name = "id"\s+type = "S"/);

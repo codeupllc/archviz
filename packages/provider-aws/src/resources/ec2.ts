@@ -35,8 +35,18 @@ export const ec2Instance = defineResource({
         { type: 'aws/dynamodb-table' },
         { type: 'aws/sqs-queue' },
       ],
-      materialize: { strategy: 'annotation' },
+      materialize: { strategy: 'reads-from', access: 'consume' },
       label: 'Reads from',
+    },
+    {
+      relationship: 'writes-to',
+      targets: [
+        { type: 'aws/sqs-queue' },
+        { type: 'aws/s3-bucket' },
+        { type: 'aws/dynamodb-table' },
+      ],
+      materialize: { strategy: 'api-iam', access: 'produce' },
+      label: 'Writes to',
     },
     {
       relationship: 'assumes',

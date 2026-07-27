@@ -2,6 +2,10 @@ import type { Node, Edge } from '@xyflow/react';
 import type { ArchvizDocument, Diagnostic } from '@archviz/core';
 import type { ResourceRegistry } from '@archviz/schema';
 import { CATEGORY_COLORS } from '@archviz/provider-aws';
+import {
+  displayLabelForRelationship,
+  relationshipOptionsFor,
+} from './relationshipOptions';
 
 export type ArchvizNodeData = {
   resourceId: string;
@@ -19,7 +23,13 @@ export type ArchvizNodeData = {
 };
 
 export type ArchvizNode = Node<ArchvizNodeData>;
-export type ArchvizEdgeData = { offset: number };
+export type ArchvizEdgeData = {
+  offset: number;
+  /** Schema relationship id, e.g. reads-from / writes-to. */
+  relationship: string;
+  /** Other valid kinds for this endpoint pair (includes current). */
+  alternatives: Array<{ relationship: string; label: string }>;
+};
 export type ArchvizEdge = Edge<ArchvizEdgeData>;
 
 export function documentToFlow(
@@ -119,6 +129,7 @@ export function documentToFlow(
     const key = `${rel.sourceId}->${rel.targetId}`;
     const index = edgeIndexByEndpoints.get(key) ?? 0;
     edgeIndexByEndpoints.set(key, index + 1);
+    const alternatives = relationshipOptionsFor(registry, document, rel);
 
     return {
       id: rel.id,
@@ -128,11 +139,13 @@ export function documentToFlow(
       // documents without stored handles keep the classic right -> left.
       sourceHandle: rel.sourceHandle ?? 'right',
       targetHandle: rel.targetHandle ?? 'left',
-      // "runs-in" reads like an internal identifier; "runs in" reads like a
-      // sentence fragment between the two node names, which is the intent.
-      label: rel.relationship.replace(/-/g, ' '),
+      label: displayLabelForRelationship(registry, document, rel),
       type: 'relationshipEdge',
-      data: { offset: 12 + index * 14 },
+      data: {
+        offset: 12 + index * 14,
+        relationship: rel.relationship,
+        alternatives,
+      },
       animated: rel.relationship === 'connects-to',
       selected: opts.selectedRelationshipIds?.has(rel.id) ?? false,
       style: { stroke: '#64748b' },

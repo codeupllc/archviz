@@ -32,7 +32,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/ecs-service` | `aws_ecs_service` | compute | Parent: ECS cluster; subnets via `runs-in` |
 | ✓ | `aws/secrets-manager-secret` | `aws_secretsmanager_secret` | security | Companion version + random/variable |
 | ✓ | `aws/ssm-parameter` | `aws_ssm_parameter` | management | |
-| ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2 can `reads-from` |
+| ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2: `reads-from` (consume IAM) vs `writes-to` (produce IAM) on assumed role |
 
 ### Companions (emitted, not palette nodes)
 
@@ -103,17 +103,64 @@ Keep as emitter/materializer output (or leave to hand-written `.tf`) unless user
 
 ---
 
+## Connection materialization audit
+
+Every canvas edge should answer: **what Terraform must this become?** Not every edge needs IAM — pick the mechanism AWS actually uses.
+
+| Access pattern | What AWS needs | Archviz edge today | Materializes? | Gap / next deepen |
+|---|---|---|---|---|
+| Compute → RDS / Aurora / ElastiCache | Network path (SG allow) | `connects-to` → `network-service` | **Yes** — `sg-rule-pair` | Optional later: IAM DB auth (rare); port-specific rules |
+| Compute → Secrets / SSM (inject) | Value/ARN wiring + often IAM | `uses-secret` | **Yes** — value ref + ECS exec-role policy | — |
+| Compute → SQS consume / produce | IAM on workload role | `reads-from` / `writes-to` | **Yes** — `api-iam` / `reads-from` | Lambda event-source mapping |
+| Compute → S3 / DynamoDB | IAM on workload role | `reads-from` / `writes-to` | **Yes** — same `api-iam` pattern (swappable on edge label) | Finer-grained actions / KMS |
+| Lambda / EC2 → IAM Role | Role ARN / instance profile | `assumes` | **Partial** — Lambda attr + EC2 instance profile | Managed-policy attaches |
+| ECS Task Def → Task / Exec role | Role ARNs | `task-role` / `execution-role` | **Attrs +** secrets policy on exec | App IAM (S3/DDB) should target **task-role** |
+| ALB → Target Group | Listener | `routes-to` | **Yes** — `lb-listener` | HTTPS + ACM |
+| TG → EC2 | Attachment | `forwards-to` | **Yes** — attachment | ECS/Lambda targets |
+| Task Def → ECR | Image URI | `pulls-image` | **Yes** — emitter in `container_definitions` | Exec-role `ecr:GetAuthorizationToken` if missing |
+| ALB / Service → Subnets | Multi-AZ lists | `runs-in` | **Yes** — emitters | — |
+
+### Do services need IAM roles to “read from” a DB?
+
+**Usually no for RDS/Aurora/ElastiCache.** Those are VPC network services: the service needs:
+
+1. Subnets / SG attachment (already modeled)
+2. `connects-to` the DB so **security-group rules** open the path (`sg-rule-pair`)
+
+Password/secret wiring is separate (`uses-secret`), not an IAM “read from DB” policy. IAM database authentication is an optional deepen, not the default.
+
+**Yes for DynamoDB / S3 / SQS / SNS / …** — no SG path; the workload’s assumed role (Lambda `assumes`, EC2 instance profile, ECS **task** role) needs a queue/table/bucket-scoped policy. SQS is the template; S3/DynamoDB `reads-from` should follow the same pattern.
+
+### Rule of thumb for agents
+
+When adding or deepening a connection, choose **one primary materialization** (combine only when AWS requires both, e.g. ECS secrets = ARN inject + exec-role IAM):
+
+1. **Nesting / attribute** — identity wiring (`subnet_id`, `role`, `cluster`)
+2. **Security group** — VPC network reachability
+3. **IAM on assumed role** — AWS API access to a resource ARN
+4. **Companion resource** — listener, attachment, event source mapping, secret version
+5. **Annotation** — only when the diagram is intentional documentation *or* an emitter on another node already covers it
+
+Never leave a user-facing “Reads from / Writes to / Connects to” edge as silent annotation if Terraform would fail or be insecure without it — either emit HCL or show a diagnostic/WARNING.
+
+**No Policy palette node.** IAM is emitted as `aws_iam_role_policy` companions on the workload’s assumed role when the edge says so (SQS / S3 / DynamoDB). The studio edge label cycles relationship kinds when several are valid (select, then click again, or use the Connection properties dropdown).
+
+Missing workload role for SQS (and similar API edges) is a **structural error** on the compute node — same class as Lambda missing Execution Role — so Diagnostics / Export / Plan surface it, not only a `# WARNING` in `.tf`.
+
+---
+
 ## Deepen existing nodes (before net-new when possible)
 
 Often better than a new palette entry:
 
-1. **S3** — versioning, encryption, public access block companions
+1. **S3** — versioning, encryption, public access block companions; finer IAM actions
 2. **ALB** — HTTPS listener + ACM connection; path-based listener rules
-3. **Lambda** — event source mappings (SQS/SNS/EventBridge) once those nodes exist; `publishes-to` producer edge
-4. **SQS** — DLQ via `redrive_policy` connection to another queue; FIFO name validation
-5. **RDS / Aurora** — subnet group companion; Performance Insights toggles
-6. **IAM Role** — attach managed policy ARNs property; trust-principal presets
+3. **Lambda** — event source mappings for SQS consume
+4. **SQS** — DLQ via `redrive_policy` connection; FIFO name validation
+5. **RDS / Aurora** — subnet group companion; Performance Insights; optional IAM DB auth
+6. **IAM Role** — attach managed policy ARNs property; trust-principal presets (ecs-tasks vs ec2)
 7. **VPC** — optional IGW/NAT synthesis from properties (like ECS log group)
+8. **ECR pulls** — ensure execution role can pull if not covered by managed policies
 
 ---
 

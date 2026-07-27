@@ -2,6 +2,7 @@ import type { Materializer } from './materialize.js';
 import { registerMaterializer } from './materialize.js';
 import { numberValue, rawValue, stringValue, traversal } from './ast.js';
 import { secretValueRef } from './aws-emitters.js';
+import type { ArchvizDocument } from '@archviz/core';
 
 /**
  * Points a consuming resource's property (e.g. RDS `password`) at whatever
@@ -224,6 +225,230 @@ export const instanceProfileMaterializer: Materializer = (ctx) => {
   };
 };
 
+const SQS_CONSUME_ACTIONS = [
+  'sqs:ReceiveMessage',
+  'sqs:DeleteMessage',
+  'sqs:GetQueueAttributes',
+  'sqs:ChangeMessageVisibility',
+];
+
+const SQS_PRODUCE_ACTIONS = ['sqs:SendMessage', 'sqs:GetQueueAttributes', 'sqs:GetQueueUrl'];
+
+const S3_CONSUME_OBJECT_ACTIONS = ['s3:GetObject'];
+const S3_CONSUME_BUCKET_ACTIONS = ['s3:ListBucket', 's3:GetBucketLocation'];
+const S3_PRODUCE_OBJECT_ACTIONS = ['s3:PutObject', 's3:DeleteObject', 's3:AbortMultipartUpload'];
+const S3_PRODUCE_BUCKET_ACTIONS = ['s3:ListBucket'];
+
+const DDB_CONSUME_ACTIONS = [
+  'dynamodb:GetItem',
+  'dynamodb:BatchGetItem',
+  'dynamodb:Query',
+  'dynamodb:Scan',
+  'dynamodb:DescribeTable',
+  'dynamodb:ConditionCheckItem',
+];
+
+const DDB_PRODUCE_ACTIONS = [
+  'dynamodb:PutItem',
+  'dynamodb:UpdateItem',
+  'dynamodb:DeleteItem',
+  'dynamodb:BatchWriteItem',
+  'dynamodb:DescribeTable',
+];
+
+type ApiAccess = 'consume' | 'produce';
+
+/**
+ * Resolves the IAM role the source compute workload assumes:
+ * - Lambda / EC2: direct `assumes` connection
+ * - ECS Service: `runs-task` → Task Definition → `task-role` (app permissions, not execution role)
+ * - ECS Task Definition: direct `task-role`
+ */
+function resolveWorkloadRoleName(
+  source: { id: string; type: string; name: string },
+  document: ArchvizDocument,
+  names: Map<string, string>,
+): string | null {
+  const assumes = document.relationships.find(
+    (r) => r.sourceId === source.id && r.relationship === 'assumes',
+  );
+  if (assumes) return names.get(assumes.targetId) ?? null;
+
+  if (source.type === 'aws/ecs-task-definition') {
+    const taskRole = document.relationships.find(
+      (r) => r.sourceId === source.id && r.relationship === 'task-role',
+    );
+    return taskRole ? (names.get(taskRole.targetId) ?? null) : null;
+  }
+
+  if (source.type === 'aws/ecs-service') {
+    const runsTask = document.relationships.find(
+      (r) => r.sourceId === source.id && r.relationship === 'runs-task',
+    );
+    if (!runsTask) return null;
+    const taskRole = document.relationships.find(
+      (r) => r.sourceId === runsTask.targetId && r.relationship === 'task-role',
+    );
+    return taskRole ? (names.get(taskRole.targetId) ?? null) : null;
+  }
+
+  return null;
+}
+
+function formatActionList(actions: string[]): string {
+  return actions.map((a) => `"${a}"`).join(', ');
+}
+
+function iamStatementsForTarget(
+  targetType: string,
+  tfName: string,
+  access: ApiAccess,
+): { kind: string; statements: string[] } | null {
+  if (targetType === 'aws/sqs-queue') {
+    const actions = access === 'produce' ? SQS_PRODUCE_ACTIONS : SQS_CONSUME_ACTIONS;
+    return {
+      kind: 'sqs',
+      statements: [
+        [
+          '      {',
+          '        Effect   = "Allow"',
+          `        Action   = [${formatActionList(actions)}]`,
+          `        Resource = [aws_sqs_queue.${tfName}.arn]`,
+          '      }',
+        ].join('\n'),
+      ],
+    };
+  }
+
+  if (targetType === 'aws/s3-bucket') {
+    const bucketActions =
+      access === 'produce' ? S3_PRODUCE_BUCKET_ACTIONS : S3_CONSUME_BUCKET_ACTIONS;
+    const objectActions =
+      access === 'produce' ? S3_PRODUCE_OBJECT_ACTIONS : S3_CONSUME_OBJECT_ACTIONS;
+    return {
+      kind: 's3',
+      statements: [
+        [
+          '      {',
+          '        Effect   = "Allow"',
+          `        Action   = [${formatActionList(bucketActions)}]`,
+          `        Resource = [aws_s3_bucket.${tfName}.arn]`,
+          '      }',
+        ].join('\n'),
+        [
+          '      {',
+          '        Effect   = "Allow"',
+          `        Action   = [${formatActionList(objectActions)}]`,
+          `        Resource = ["\${aws_s3_bucket.${tfName}.arn}/*"]`,
+          '      }',
+        ].join('\n'),
+      ],
+    };
+  }
+
+  if (targetType === 'aws/dynamodb-table') {
+    const actions = access === 'produce' ? DDB_PRODUCE_ACTIONS : DDB_CONSUME_ACTIONS;
+    return {
+      kind: 'dynamodb',
+      statements: [
+        [
+          '      {',
+          '        Effect   = "Allow"',
+          `        Action   = [${formatActionList(actions)}]`,
+          `        Resource = [`,
+          `          aws_dynamodb_table.${tfName}.arn,`,
+          `          "\${aws_dynamodb_table.${tfName}.arn}/index/*",`,
+          '        ]',
+          '      }',
+        ].join('\n'),
+      ],
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Lambda/EC2/ECS —reads-from|writes-to→ SQS / S3 / DynamoDB: grant the assumed
+ * workload role resource-scoped IAM (consume vs produce). Without a role,
+ * emits a WARNING comment instead of a policy.
+ */
+export const apiIamMaterializer: Materializer = (ctx) => {
+  const access: ApiAccess =
+    (ctx.rule.materialize as { strategy: string; access?: ApiAccess }).access ??
+    (ctx.relationship.relationship === 'writes-to' ? 'produce' : 'consume');
+
+  const sourceName = ctx.names.get(ctx.source.id);
+  const targetName = ctx.names.get(ctx.target.id);
+  if (!sourceName || !targetName) return {};
+
+  const spec = iamStatementsForTarget(ctx.target.type, targetName, access);
+  if (!spec) {
+    return {
+      comment: `annotation: ${ctx.source.name} ${ctx.relationship.relationship} ${ctx.target.name} (no IAM mapping)`,
+    };
+  }
+
+  const roleName = resolveWorkloadRoleName(ctx.source, ctx.document, ctx.names);
+  if (!roleName) {
+    const roleHint =
+      ctx.source.type === 'aws/ecs-service' || ctx.source.type === 'aws/ecs-task-definition'
+        ? 'Task Role on the Task Definition'
+        : 'assumes → IAM Role';
+    return {
+      comment: `WARNING: ${ctx.source.name} ${ctx.relationship.relationship} ${ctx.target.name} but no ${roleHint} is connected — no ${spec.kind.toUpperCase()} IAM policy emitted`,
+    };
+  }
+
+  const policyName = `${sourceName}_${spec.kind}_${access}_${targetName}`;
+  const policyJson = [
+    '{',
+    '    Version = "2012-10-17"',
+    '    Statement = [',
+    spec.statements.join(',\n'),
+    '    ]',
+    '  }',
+  ].join('\n');
+
+  return {
+    extraBlocks: [
+      {
+        blockType: 'resource',
+        labels: ['aws_iam_role_policy', policyName],
+        attributes: [
+          {
+            name: 'name',
+            value: stringValue(`${ctx.source.name}-${spec.kind}-${access}-${ctx.target.name}`),
+          },
+          { name: 'role', value: traversal('aws_iam_role', roleName, 'id') },
+          { name: 'policy', value: rawValue(`jsonencode(${policyJson})`) },
+        ],
+        blocks: [],
+        comment: `${ctx.relationship.relationship}: ${ctx.source.name} → ${ctx.target.name} (${access} on assumed role)`,
+      },
+    ],
+  };
+};
+
+/** @deprecated Prefer apiIamMaterializer — kept as an alias for SQS-era call sites. */
+export const sqsIamMaterializer = apiIamMaterializer;
+
+/**
+ * Shared `reads-from` edge: SQS / S3 / DynamoDB get consume IAM on the assumed role.
+ */
+export const readsFromMaterializer: Materializer = (ctx) => {
+  if (
+    ctx.target.type === 'aws/sqs-queue' ||
+    ctx.target.type === 'aws/s3-bucket' ||
+    ctx.target.type === 'aws/dynamodb-table'
+  ) {
+    return apiIamMaterializer(ctx);
+  }
+  return {
+    comment: `annotation: ${ctx.source.name} ${ctx.relationship.relationship} ${ctx.target.name} (no HCL emitted)`,
+  };
+};
+
 let awsRegistered = false;
 
 export function registerAwsMaterializers(): void {
@@ -234,5 +459,8 @@ export function registerAwsMaterializers(): void {
   registerMaterializer('lb-listener', lbListenerMaterializer);
   registerMaterializer('lb-target-attachment', lbTargetAttachmentMaterializer);
   registerMaterializer('instance-profile', instanceProfileMaterializer);
+  registerMaterializer('api-iam', apiIamMaterializer);
+  registerMaterializer('sqs-iam', apiIamMaterializer);
+  registerMaterializer('reads-from', readsFromMaterializer);
   awsRegistered = true;
 }

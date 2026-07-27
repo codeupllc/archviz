@@ -6,6 +6,7 @@ import {
 } from '../state/hooks';
 import { useStudioServices } from '../state/StudioServices';
 import type { PropertyDefinition } from '@archviz/schema';
+import { relationshipOptionsFor } from '../canvas/relationshipOptions';
 
 function sanitizeVarName(raw: string): string {
   const cleaned = raw
@@ -208,6 +209,7 @@ export function PropertiesPanel() {
     if (relationship) {
       const sourceRes = document.resources.find((r) => r.id === relationship.sourceId);
       const targetRes = document.resources.find((r) => r.id === relationship.targetId);
+      const alternatives = relationshipOptionsFor(registry, document, relationship);
       return (
         <aside className="properties-panel">
           <div className="properties-panel__header">
@@ -222,6 +224,32 @@ export function PropertiesPanel() {
               <strong>To:</strong> {targetRes?.name ?? relationship.targetId}
             </div>
           </div>
+          {alternatives.length > 1 ? (
+            <label className="prop-field" htmlFor="connection-relationship">
+              <span className="prop-field__label">Relationship</span>
+              <select
+                id="connection-relationship"
+                value={relationship.relationship}
+                onChange={(e) =>
+                  store.send({
+                    type: 'connection.setRelationship',
+                    id: relationship.id,
+                    relationship: e.target.value,
+                  })
+                }
+              >
+                {alternatives.map((opt) => (
+                  <option key={opt.relationship} value={opt.relationship}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <span className="prop-field__hint">
+                Switches generated Terraform for this edge (e.g. SQS consume vs produce IAM on the
+                assumed role). No separate Policy node.
+              </span>
+            </label>
+          ) : null}
           <button
             type="button"
             className="btn btn--danger properties-panel__delete"

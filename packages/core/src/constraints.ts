@@ -312,6 +312,11 @@ export function createConstraintEngine(registry: ResourceRegistry): ConstraintEn
         );
       }
 
+      // API-access edges (e.g. SQS reads-from / writes-to) need a resolvable
+      // workload IAM role — same class of diagram error as Lambda missing
+      // Execution Role, so Export/Plan block instead of only a .tf WARNING.
+      diagnostics.push(...validateWorkloadRoleAccess(doc, registry));
+
       return {
         ok: diagnostics.every((d) => d.severity !== 'error'),
         diagnostics,
@@ -473,6 +478,110 @@ function validateProperties(
         });
       }
     }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Edges that grant AWS API access via IAM on an assumed role (SQS / S3 /
+ * DynamoDB). Detected by materialize strategy or known API target types.
+ */
+function edgeNeedsWorkloadRole(
+  rule: ConnectionRule,
+  targetType: string,
+): boolean {
+  const strategy = rule.materialize?.strategy;
+  if (strategy === 'sqs-iam' || strategy === 'api-iam') return true;
+  if (strategy === 'reads-from') {
+    return (
+      targetType === 'aws/sqs-queue' ||
+      targetType === 'aws/s3-bucket' ||
+      targetType === 'aws/dynamodb-table'
+    );
+  }
+  return false;
+}
+
+function resolveWorkloadRoleId(
+  source: ResourceInstance,
+  doc: ArchvizDocument,
+): string | null {
+  const assumes = doc.relationships.find(
+    (r) => r.sourceId === source.id && r.relationship === 'assumes',
+  );
+  if (assumes) return assumes.targetId;
+
+  if (source.type === 'aws/ecs-task-definition') {
+    const taskRole = doc.relationships.find(
+      (r) => r.sourceId === source.id && r.relationship === 'task-role',
+    );
+    return taskRole?.targetId ?? null;
+  }
+
+  if (source.type === 'aws/ecs-service') {
+    const runsTask = doc.relationships.find(
+      (r) => r.sourceId === source.id && r.relationship === 'runs-task',
+    );
+    if (!runsTask) return null;
+    const taskRole = doc.relationships.find(
+      (r) => r.sourceId === runsTask.targetId && r.relationship === 'task-role',
+    );
+    return taskRole?.targetId ?? null;
+  }
+
+  return null;
+}
+
+function workloadRoleHint(sourceType: string): string {
+  if (sourceType === 'aws/ecs-service' || sourceType === 'aws/ecs-task-definition') {
+    return 'connect an IAM Role to the Task Definition via "Task Role"';
+  }
+  if (sourceType === 'aws/lambda-function') {
+    return 'connect an IAM Role via "Execution Role"';
+  }
+  if (sourceType === 'aws/ec2-instance') {
+    return 'connect an IAM Role via "IAM Role"';
+  }
+  return 'connect an IAM Role the workload can assume';
+}
+
+/**
+ * When a service reads/writes SQS (or similar API resources) without a
+ * resolvable workload role, surface a canvas error like Lambda's missing
+ * Execution Role — not only a codegen WARNING comment.
+ */
+function validateWorkloadRoleAccess(
+  doc: ArchvizDocument,
+  registry: ResourceRegistry,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+
+  for (const rel of doc.relationships) {
+    const source = findResource(doc, rel.sourceId);
+    const target = findResource(doc, rel.targetId);
+    if (!source || !target) continue;
+
+    const rule = registry.findConnectionRule(source.type, rel.relationship, target.type);
+    if (!rule) continue;
+
+    const targetDef = registry.get(target.type);
+    if (!edgeNeedsWorkloadRole(rule, target.type)) continue;
+
+    if (resolveWorkloadRoleId(source, doc)) continue;
+
+    const sourceLabel = registry.get(source.type)?.display.label ?? source.type;
+    const targetLabel = targetDef?.display.label ?? target.type;
+    const edgeLabel = rule.label ?? rel.relationship.replace(/-/g, ' ');
+
+    diagnostics.push({
+      code: 'missing-workload-role',
+      message: `${sourceLabel} "${source.name}" ${edgeLabel.toLowerCase()} ${targetLabel} but has no assumed role — ${workloadRoleHint(source.type)} to grant access`,
+      severity: 'error',
+      tier: 'structural',
+      resourceId: source.id,
+      relationshipId: rel.id,
+    });
   }
 
   return diagnostics;

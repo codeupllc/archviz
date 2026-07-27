@@ -983,6 +983,24 @@ body,
 
 .relationship-edge__text {
   line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.relationship-edge__label.is-cyclable {
+  padding-right: 6px;
+}
+
+.relationship-edge__cycle-hint {
+  font-size: 10px;
+  opacity: 0.65;
+  font-weight: 700;
+}
+
+.relationship-edge__label.is-cyclable:hover .relationship-edge__cycle-hint,
+.relationship-edge__label.is-selected.is-cyclable .relationship-edge__cycle-hint {
+  opacity: 1;
 }
 
 .relationship-edge__delete {

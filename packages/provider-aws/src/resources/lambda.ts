@@ -39,8 +39,19 @@ export const lambdaFunction = defineResource({
         { type: 'aws/dynamodb-table' },
         { type: 'aws/sqs-queue' },
       ],
-      materialize: { strategy: 'annotation' },
+      // S3 / DynamoDB / SQS: consume IAM on the assumed workload role.
+      materialize: { strategy: 'reads-from', access: 'consume' },
       label: 'Reads from',
+    },
+    {
+      relationship: 'writes-to',
+      targets: [
+        { type: 'aws/sqs-queue' },
+        { type: 'aws/s3-bucket' },
+        { type: 'aws/dynamodb-table' },
+      ],
+      materialize: { strategy: 'api-iam', access: 'produce' },
+      label: 'Writes to',
     },
     {
       // Terraform requires `role` on aws_lambda_function, and it can only come

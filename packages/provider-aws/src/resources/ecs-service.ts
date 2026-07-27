@@ -48,8 +48,19 @@ export const ecsService = defineResource({
         { type: 'aws/dynamodb-table' },
         { type: 'aws/sqs-queue' },
       ],
-      materialize: { strategy: 'annotation' },
+      // App API permissions land on the Task Definition's Task Role.
+      materialize: { strategy: 'reads-from', access: 'consume' },
       label: 'Reads from',
+    },
+    {
+      relationship: 'writes-to',
+      targets: [
+        { type: 'aws/sqs-queue' },
+        { type: 'aws/s3-bucket' },
+        { type: 'aws/dynamodb-table' },
+      ],
+      materialize: { strategy: 'api-iam', access: 'produce' },
+      label: 'Writes to',
     },
   ],
   properties: [

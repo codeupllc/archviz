@@ -539,6 +539,41 @@ export function createDocumentStore(registry: ResourceRegistry, initial?: Archvi
         };
       },
 
+      'connection.setRelationship': (ctx, event: { id: string; relationship: string }) => {
+        const existing = ctx.document.relationships.find((r) => r.id === event.id);
+        if (!existing) return ctx;
+        if (existing.relationship === event.relationship) return ctx;
+
+        const withoutCurrent = {
+          ...ctx.document,
+          relationships: ctx.document.relationships.filter((r) => r.id !== event.id),
+        };
+        const result: ConstraintResult = engine.canConnect(
+          existing.sourceId,
+          existing.targetId,
+          event.relationship,
+          withoutCurrent,
+        );
+        if (!result.ok) {
+          return { ...ctx, lastError: result.diagnostics };
+        }
+
+        const document = touchDocument({
+          ...ctx.document,
+          relationships: ctx.document.relationships.map((r) =>
+            r.id === event.id ? { ...r, relationship: event.relationship } : r,
+          ),
+        });
+
+        return {
+          ...ctx,
+          ...checkpoint(ctx),
+          document,
+          lastError: null,
+          diagnostics: revalidate(document, registry),
+        };
+      },
+
       'selection.set': (ctx, event: { ids: string[]; edgeIds?: string[] }) => {
         const edgeIds = event.edgeIds ?? [];
         // React Flow's SelectionListener re-fires onSelectionChange with a
