@@ -84,6 +84,24 @@ export function topoSort(document: ArchvizDocument, registry: ResourceRegistry):
   return ordered;
 }
 
+/**
+ * Terraform requires resource names to be unique per type per module, but the
+ * same companion block can legitimately be derived more than once — e.g. two
+ * resources in the same security group connecting to the same target group
+ * produce the identical SG rule pair. Keep the first of each.
+ */
+function dedupeBlocks(blocks: CategorizedBlock[]): CategorizedBlock[] {
+  const seen = new Set<string>();
+  const result: CategorizedBlock[] = [];
+  for (const entry of blocks) {
+    const key = `${entry.block.blockType}:${entry.block.labels.join('.')}`;
+    if (entry.block.labels.length > 0 && seen.has(key)) continue;
+    seen.add(key);
+    result.push(entry);
+  }
+  return result;
+}
+
 /** Best-practice per-category file layout. Anything uncategorized falls into compute.tf. */
 const CATEGORY_FILE: Record<string, string> = {
   networking: 'network.tf',
@@ -172,8 +190,10 @@ export function generate(
     if (block) blocksByResourceId.set(id, block);
   }
 
-  const extra = applyMaterializers(document, registry, names, blocksByResourceId);
-  const emitterExtra = applyEmitters(document, registry, names, region, blocksByResourceId);
+  const extra = dedupeBlocks(applyMaterializers(document, registry, names, blocksByResourceId));
+  const emitterExtra = dedupeBlocks(
+    applyEmitters(document, registry, names, region, blocksByResourceId),
+  );
 
   const needsRandomProvider = document.resources.some(
     (r) => r.type === 'aws/secrets-manager-secret' && r.properties.source !== 'variable',

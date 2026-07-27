@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import { createAwsRegistry } from '@archviz/provider-aws';
+import { buildAllResourcesDocument } from './demo-fixture.js';
+import { generate, generateMainTf } from './index.js';
+
+const registry = createAwsRegistry();
+
+/**
+ * Guards against resource definitions that silently omit arguments Terraform
+ * requires. `terraform validate` on this same fixture runs in CI
+ * (scripts/validate-fixture.mjs); these assertions catch the same regressions
+ * in the fast unit-test loop.
+ */
+describe('all-resources fixture', () => {
+  it('covers every resource type in the registry', () => {
+    const used = new Set(buildAllResourcesDocument().resources.map((r) => r.type));
+    const missing = registry.all().map((d) => d.id).filter((id) => !used.has(id));
+    expect(missing).toEqual([]);
+  });
+
+  it('validates without errors', () => {
+    const result = generate(buildAllResourcesDocument(), registry, { layout: 'by-category' });
+    const errors = result.diagnostics.filter((d) => d.severity === 'error');
+    expect(errors).toEqual([]);
+    expect(result.blocked).toBe(false);
+  });
+
+  it('emits the arguments Terraform requires for each resource', () => {
+    const hcl = generateMainTf(buildAllResourcesDocument(), registry);
+
+    // Previously missing entirely
+    expect(hcl).toMatch(/resource "aws_lambda_function" "worker" \{[\s\S]*?function_name\s+= "worker"/);
+    expect(hcl).toMatch(/resource "aws_lambda_function" "worker" \{[\s\S]*?role\s+= aws_iam_role\.lambda_role\.arn/);
+    expect(hcl).toMatch(/resource "aws_dynamodb_table" "users" \{[\s\S]*?name\s+= "users"/);
+    expect(hcl).toMatch(/resource "aws_ssm_parameter" "api_key" \{[\s\S]*?value\s+= "placeholder"/);
+
+    // DynamoDB requires an attribute definition per key
+    expect(hcl).toMatch(/attribute \{\s+name = "id"\s+type = "S"/);
+    expect(hcl).toMatch(/attribute \{\s+name = "created_at"\s+type = "N"/);
+
+    // ALB subnets must be a list spanning parent + "also spans" connections
+    expect(hcl).toMatch(
+      /resource "aws_lb" "public_alb" \{[\s\S]*?subnets = \[\s+aws_subnet\.private_a\.id,\s+aws_subnet\.private_b\.id/,
+    );
+
+    // Listener and attachment must be real LB resources, not source_id/target_id stubs
+    expect(hcl).toContain('resource "aws_lb_listener" "public_alb_to_web_tg"');
+    expect(hcl).toContain('load_balancer_arn = aws_lb.public_alb.arn');
+    expect(hcl).toMatch(/default_action \{\s+type\s+= "forward"\s+target_group_arn = aws_lb_target_group\.web_tg\.arn/);
+    expect(hcl).toMatch(
+      /resource "aws_lb_target_group_attachment" "web_tg_to_web" \{\s+target_group_arn = aws_lb_target_group\.web_tg\.arn/,
+    );
+    expect(hcl).not.toContain('source_id');
+
+    // EC2 needs an instance profile, not the role directly
+    expect(hcl).toContain('resource "aws_iam_instance_profile" "web_profile"');
+    expect(hcl).toMatch(/iam_instance_profile\s+= aws_iam_instance_profile\.web_profile\.name/);
+  });
+
+  it('emits each security-group rule pair once even when several resources share it', () => {
+    const hcl = generateMainTf(buildAllResourcesDocument(), registry);
+    const egressRules = hcl.match(/resource "aws_vpc_security_group_egress_rule" "(\w+)"/g) ?? [];
+    expect(new Set(egressRules).size).toBe(egressRules.length);
+  });
+
+  it('omits incomplete nested blocks rather than emitting invalid ones', () => {
+    // A Lambda with no subnet parent and no security group must not get a vpc_config.
+    const doc = buildAllResourcesDocument();
+    const hcl = generateMainTf(doc, registry);
+    expect(hcl).not.toMatch(/vpc_config \{\s+\}/);
+    expect(hcl).not.toMatch(/network_configuration \{\s+assign_public_ip = false\s+\}/);
+  });
+});
+
+describe('missing required connections', () => {
+  it('flags a Lambda with no execution role instead of generating invalid HCL', () => {
+    const doc = buildAllResourcesDocument();
+    const withoutRole = {
+      ...doc,
+      relationships: doc.relationships.filter((r) => r.id !== 'r-lambda-role'),
+    };
+
+    const result = generate(withoutRole, registry, { layout: 'single-file' });
+    expect(result.blocked).toBe(true);
+    expect(
+      result.diagnostics.some(
+        (d) => d.code === 'missing-required-connection' && d.message.includes('Execution Role'),
+      ),
+    ).toBe(true);
+  });
+});

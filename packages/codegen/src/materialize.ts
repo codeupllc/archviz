@@ -283,11 +283,20 @@ export function buildResourceBlock(
   const blocks: HclBlock[] = [];
   for (const nested of def.terraform.blocks ?? []) {
     const nestedAttributes: HclAttribute[] = [];
+    let resolvedAny = false;
     for (const [attrName, expr] of Object.entries(nested.attributes)) {
       const value = resolveExpr(expr, resource, ctx.document, ctx.names, ctx.registry);
       if (value === null || value.kind === 'null') continue;
+      if (expr.kind === 'rel' || expr.kind === 'parent') resolvedAny = true;
       nestedAttributes.push({ name: attrName, value });
     }
+    // A block whose connection-sourced attributes all resolved to nothing is
+    // an incomplete block (e.g. network_configuration with no subnets), which
+    // Terraform rejects — skip it rather than emitting something invalid.
+    const hasRelSources = Object.values(nested.attributes).some(
+      (expr) => expr.kind === 'rel' || expr.kind === 'parent',
+    );
+    if (nestedAttributes.length === 0 || (hasRelSources && !resolvedAny)) continue;
     blocks.push({
       blockType: nested.blockType,
       labels: [],

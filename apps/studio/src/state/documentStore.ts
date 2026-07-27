@@ -2,6 +2,7 @@ import { createStore } from '@xstate/store';
 import {
   createEmptyDocument,
   createConstraintEngine,
+  normalizeDocument,
   touchDocument,
   type ArchvizDocument,
   type ResourceInstance,
@@ -82,7 +83,7 @@ function coalescedCheckpoint(
 
 export function createDocumentStore(registry: ResourceRegistry, initial?: ArchvizDocument) {
   const engine = createConstraintEngine(registry);
-  const document = initial ?? createEmptyDocument();
+  const document = normalizeDocument(initial ?? createEmptyDocument(), registry);
 
   return createStore({
     context: {
@@ -96,7 +97,9 @@ export function createDocumentStore(registry: ResourceRegistry, initial?: Archvi
     } satisfies DocumentStoreContext,
     on: {
       'document.load': (ctx, event: { document: ArchvizDocument }) => {
-        const doc = event.document;
+        // Diagrams saved before a resource gained a property need those
+        // defaults backfilled, or they'd load with spurious validation errors.
+        const doc = normalizeDocument(event.document, registry);
         return {
           ...ctx,
           document: doc,

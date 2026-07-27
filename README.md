@@ -29,7 +29,13 @@ Open http://localhost:5173 — drag resources from the palette onto the canvas (
 pnpm test        # run all package tests
 pnpm typecheck   # type-check all packages
 pnpm build       # build all packages + studio
+
+# generate a diagram using every resource type and check the HCL with real
+# Terraform (needs terraform on PATH; also runs in CI)
+node scripts/validate-fixture.mjs tmp/tf-fixture
 ```
+
+`scripts/validate-fixture.mjs` builds the all-resources fixture (`buildAllResourcesDocument()` in `@archviz/codegen`) and runs `terraform init -backend=false`, `terraform validate`, and `terraform fmt -check` against the output. That's the guardrail against a resource definition silently omitting an argument Terraform requires — if you add or change a resource, add it to the fixture.
 
 ## Architecture highlights
 
@@ -49,6 +55,22 @@ pnpm build       # build all packages + studio
 VPC, Subnet, EC2, Security Group, RDS Instance (Postgres/MySQL/MariaDB/Oracle/SQL Server), Aurora Cluster + Aurora Instance, ElastiCache (Redis/Memcached), S3, ALB, Target Group, Lambda, DynamoDB, IAM Role, ECR Repository, ECS Cluster/Task Definition/Service, Secrets Manager Secret, SSM Parameter.
 
 Most resources require a parent container (e.g. Subnet needs a VPC, EC2 needs a Subnet) — the palette shows a "needs X first" hint on anything that can't be placed yet, and the canvas highlights valid drop targets while you drag.
+
+Some Terraform arguments can only come from a connection, so those connections are validated as required rather than silently omitted. An ALB, for example, needs subnets in two Availability Zones — nest it in one Subnet and use "Also spans Subnet" connections for the rest; with only one the export carries a warning comment.
+
+### Worked example: a Lambda that can't exist yet
+
+Terraform requires `role` on `aws_lambda_function`, and that ARN can only come from a connection to an IAM Role. Drop a Lambda on its own and the diagram says so before you ever run Terraform:
+
+![Lambda with no execution role: error badge on the node, ERRORS badge disabling Plan and Export, and a structural diagnostic naming the missing connection](docs/images/lambda-missing-execution-role.png)
+
+Three things happen at once: the node gets an error badge, **Plan** and **Export** are disabled behind an `ERRORS` badge, and Diagnostics explains exactly what's missing — *"Lambda Function needs a 'Execution Role' connection"*. That's deliberately not a silently-incomplete `.tf` file: without the connection the generator has no ARN to emit, so the alternative would be HCL that fails at plan time with `The argument "role" is required, but no definition was found`.
+
+Draw the `assumes` connection to an IAM Role and the error clears — the badge disappears, `role = aws_iam_role.<name>.arn` appears in the generated HCL, and Plan/Export re-enable:
+
+![A Lambda connected to an IAM Role via an assumes edge, with the error badge gone](docs/images/lambda-execution-role-connected.png)
+
+The same idea powers the ECS secrets wiring below: connecting a secret makes the generator emit both the `valueFrom` reference *and* the IAM policy the execution role needs, because it can see the whole relationship rather than a lone property value.
 
 ### Docker / ECS
 

@@ -1,6 +1,6 @@
 import type { Materializer } from './materialize.js';
 import { registerMaterializer } from './materialize.js';
-import { traversal } from './ast.js';
+import { numberValue, rawValue, stringValue, traversal } from './ast.js';
 import { secretValueRef } from './aws-emitters.js';
 
 /**
@@ -56,6 +56,10 @@ export const sgRulePairMaterializer: Materializer = (ctx) => {
       if (!tgtSgName) continue;
 
       const ruleName = `${srcSgName}_to_${tgtSgName}`;
+      // Described by security group, not by the connected resources: several
+      // resources can share the same SG pair, and the resulting rule is
+      // identical — generate.ts dedupes them by name.
+      const description = `${srcSg.name} → ${tgtSg.name}`;
 
       blocks.push({
         blockType: 'resource',
@@ -74,14 +78,11 @@ export const sgRulePairMaterializer: Materializer = (ctx) => {
           { name: 'to_port', value: { kind: 'number' as const, value: 65535 } },
           {
             name: 'description',
-            value: {
-              kind: 'string' as const,
-              value: `${ctx.source.name} → ${ctx.target.name}`,
-            },
+            value: { kind: 'string' as const, value: description },
           },
         ],
         blocks: [],
-        comment: `connects-to: ${ctx.source.name} → ${ctx.target.name}`,
+        comment: `connects-to: ${description}`,
       });
 
       blocks.push({
@@ -101,10 +102,7 @@ export const sgRulePairMaterializer: Materializer = (ctx) => {
           { name: 'to_port', value: { kind: 'number' as const, value: 65535 } },
           {
             name: 'description',
-            value: {
-              kind: 'string' as const,
-              value: `${ctx.source.name} → ${ctx.target.name}`,
-            },
+            value: { kind: 'string' as const, value: description },
           },
         ],
         blocks: [],
@@ -115,6 +113,117 @@ export const sgRulePairMaterializer: Materializer = (ctx) => {
   return { extraBlocks: blocks };
 };
 
+/**
+ * ALB —routes-to→ Target Group becomes a real `aws_lb_listener` with a
+ * forward default_action. The listener's port/protocol follow the target
+ * group's, which is the common single-service case.
+ */
+export const lbListenerMaterializer: Materializer = (ctx) => {
+  const albName = ctx.names.get(ctx.source.id);
+  const tgName = ctx.names.get(ctx.target.id);
+  if (!albName || !tgName) return {};
+
+  const protocol = String(ctx.target.properties.protocol ?? 'HTTP');
+  const port = Number(ctx.target.properties.port ?? 80);
+
+  return {
+    extraBlocks: [
+      {
+        blockType: 'resource',
+        labels: ['aws_lb_listener', `${albName}_to_${tgName}`],
+        attributes: [
+          { name: 'load_balancer_arn', value: traversal('aws_lb', albName, 'arn') },
+          { name: 'port', value: numberValue(port) },
+          { name: 'protocol', value: stringValue(protocol) },
+        ],
+        blocks: [
+          {
+            blockType: 'default_action',
+            labels: [],
+            attributes: [
+              { name: 'type', value: stringValue('forward') },
+              {
+                name: 'target_group_arn',
+                value: traversal('aws_lb_target_group', tgName, 'arn'),
+              },
+            ],
+            blocks: [],
+          },
+        ],
+        comment: `routes-to: ${ctx.source.name} → ${ctx.target.name}`,
+      },
+    ],
+  };
+};
+
+/**
+ * Target Group —forwards-to→ EC2 becomes an attachment. The target group arn
+ * comes from the *source* (the group), the target id from the instance.
+ */
+export const lbTargetAttachmentMaterializer: Materializer = (ctx) => {
+  const tgName = ctx.names.get(ctx.source.id);
+  const targetName = ctx.names.get(ctx.target.id);
+  if (!tgName || !targetName) return {};
+
+  const attributes = [
+    { name: 'target_group_arn', value: traversal('aws_lb_target_group', tgName, 'arn') },
+    {
+      name: 'target_id',
+      value: traversal(ctx.targetDef.terraform.resourceType, targetName, 'id'),
+    },
+  ];
+
+  const port = ctx.source.properties.port;
+  if (typeof port === 'number') {
+    attributes.push({ name: 'port', value: numberValue(port) });
+  }
+
+  return {
+    extraBlocks: [
+      {
+        blockType: 'resource',
+        labels: ['aws_lb_target_group_attachment', `${tgName}_to_${targetName}`],
+        attributes,
+        blocks: [],
+        comment: `forwards-to: ${ctx.source.name} → ${ctx.target.name}`,
+      },
+    ],
+  };
+};
+
+/**
+ * EC2 —assumes→ IAM Role: `iam_instance_profile` needs an instance *profile*,
+ * not the role itself, so emit the profile wrapper and point the instance at it.
+ */
+export const instanceProfileMaterializer: Materializer = (ctx) => {
+  const instanceName = ctx.names.get(ctx.source.id);
+  const roleName = ctx.names.get(ctx.target.id);
+  if (!instanceName || !roleName) return {};
+
+  const profileName = `${instanceName}_profile`;
+
+  return {
+    sourceAttributes: [
+      {
+        name: 'iam_instance_profile',
+        value: traversal('aws_iam_instance_profile', profileName, 'name'),
+      },
+    ],
+    extraBlocks: [
+      {
+        blockType: 'resource',
+        labels: ['aws_iam_instance_profile', profileName],
+        attributes: [
+          { name: 'name', value: rawValue(`"${instanceName}-profile"`) },
+          { name: 'role', value: traversal('aws_iam_role', roleName, 'name') },
+        ],
+        blocks: [],
+        comment: `assumes: ${ctx.source.name} → ${ctx.target.name} (EC2 needs an instance profile, not the role directly)`,
+      },
+    ],
+  };
+};
+
 let awsRegistered = false;
 
 export function registerAwsMaterializers(): void {
@@ -122,5 +231,8 @@ export function registerAwsMaterializers(): void {
   registerMaterializer('sg-rule-pair', sgRulePairMaterializer);
   registerMaterializer('sg-rule-pair:aws', sgRulePairMaterializer);
   registerMaterializer('secret-value-ref', secretValueRefMaterializer);
+  registerMaterializer('lb-listener', lbListenerMaterializer);
+  registerMaterializer('lb-target-attachment', lbTargetAttachmentMaterializer);
+  registerMaterializer('instance-profile', instanceProfileMaterializer);
   awsRegistered = true;
 }

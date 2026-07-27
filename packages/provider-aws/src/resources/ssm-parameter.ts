@@ -30,12 +30,15 @@ export const ssmParameter = defineResource({
       default: 'String',
     },
     {
+      // Terraform requires `value` on aws_ssm_parameter, so this is required
+      // with a placeholder default rather than optional-and-silently-missing.
       name: 'value',
       type: 'string',
-      required: false,
+      required: true,
+      default: 'placeholder',
       label: 'Value',
       description:
-        'Plain literal value. For SecureString, promote this field to a variable (properties panel) instead of hardcoding a secret here.',
+        'Plain literal value. For SecureString, promote this field to a variable (the "\u2192 var" toggle) instead of hardcoding a secret here.',
     },
   ],
   terraform: {

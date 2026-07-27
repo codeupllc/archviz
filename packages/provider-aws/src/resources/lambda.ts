@@ -17,10 +17,13 @@ export const lambdaFunction = defineResource({
   },
   connections: [
     {
+      // The vpc_config block (subnet_ids + security_group_ids) is synthesized
+      // by the Lambda emitter, which needs both this connection and the
+      // optional Subnet parent — a flat attribute can't express a nested block.
       relationship: 'attached-to',
       targets: [{ type: 'aws/security-group' }],
       cardinality: { maxOutgoing: 5 },
-      materialize: { strategy: 'attribute', attribute: 'vpc_config.security_group_ids' },
+      materialize: { strategy: 'annotation' },
       label: 'Security Group',
     },
     {
@@ -36,14 +39,24 @@ export const lambdaFunction = defineResource({
       label: 'Reads from',
     },
     {
+      // Terraform requires `role` on aws_lambda_function, and it can only come
+      // from this connection — minOutgoing surfaces it as a diagram error
+      // instead of generating HCL that fails at plan time.
       relationship: 'assumes',
       targets: [{ type: 'aws/iam-role' }],
-      cardinality: { maxOutgoing: 1 },
-      materialize: { strategy: 'attribute', attribute: 'role' },
-      label: 'IAM Role',
+      cardinality: { maxOutgoing: 1, minOutgoing: 1 },
+      materialize: { strategy: 'annotation' },
+      label: 'Execution Role',
     },
   ],
   properties: [
+    {
+      name: 'function_name',
+      type: 'string',
+      required: true,
+      default: 'my-function',
+      label: 'Function Name',
+    },
     {
       name: 'runtime',
       type: 'enum',
@@ -93,6 +106,7 @@ export const lambdaFunction = defineResource({
   terraform: {
     resourceType: 'aws_lambda_function',
     attributes: {
+      function_name: prop('function_name'),
       runtime: prop('runtime'),
       handler: prop('handler'),
       filename: prop('filename'),

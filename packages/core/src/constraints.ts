@@ -248,6 +248,23 @@ export function createConstraintEngine(registry: ResourceRegistry): ConstraintEn
           diagnostics.push(...nest.diagnostics.map((d) => ({ ...d, resourceId: resource.id })));
         }
 
+        // Required outgoing connections (Terraform arguments that can only
+        // come from a connection — without them the generated HCL is invalid).
+        for (const rule of def.connections) {
+          const min = rule.cardinality?.minOutgoing;
+          if (min == null) continue;
+          const outgoing = relationshipsFrom(doc, resource.id, rule.relationship);
+          if (outgoing.length < min) {
+            diagnostics.push({
+              code: 'missing-required-connection',
+              message: `${def.display.label} needs ${min === 1 ? 'a' : min} "${rule.label ?? rule.relationship}" connection`,
+              severity: 'error',
+              tier: 'structural',
+              resourceId: resource.id,
+            });
+          }
+        }
+
         // Properties (semantic)
         diagnostics.push(...validateProperties(resource, def.properties));
       }

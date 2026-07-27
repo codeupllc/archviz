@@ -75,6 +75,14 @@ export type ConnectionTarget =
 export interface ConnectionCardinality {
   maxOutgoing?: number | null;
   maxIncoming?: number | null;
+  /**
+   * Minimum outgoing connections for a valid document. Use this when Terraform
+   * *requires* an argument that can only come from a connection (e.g. a Lambda
+   * function's `role`), so the diagram is flagged instead of generating HCL
+   * that fails at plan time. Checked document-wide by validate(), not while a
+   * single connection is being drawn.
+   */
+  minOutgoing?: number | null;
 }
 
 /**

@@ -1,7 +1,52 @@
 import type { ResourceInstance } from '@archviz/core';
-import { registerResourceEmitter } from './emit.js';
+import { registerResourceEmitter, type EmitterContext } from './emit.js';
 import type { HclValue } from './ast.js';
-import { rawValue, stringValue, numberValue, boolValue, traversal } from './ast.js';
+import { rawValue, stringValue, numberValue, boolValue, listValue, traversal } from './ast.js';
+
+/**
+ * Every subnet a resource lives in: its Subnet ancestor (containment) plus any
+ * "runs-in" connections. ALBs and Fargate services span several subnets, which
+ * containment alone can't express.
+ */
+function subnetRefs(resource: ResourceInstance, ctx: EmitterContext): HclValue[] {
+  const names: string[] = [];
+
+  let current: ResourceInstance | undefined = resource;
+  while (current?.parentId) {
+    const parent: ResourceInstance | undefined = ctx.document.resources.find(
+      (r) => r.id === current!.parentId,
+    );
+    if (!parent) break;
+    if (parent.type === 'aws/subnet') {
+      const parentName = ctx.names.get(parent.id);
+      if (parentName) names.push(parentName);
+      break;
+    }
+    current = parent;
+  }
+
+  for (const rel of ctx.document.relationships) {
+    if (rel.sourceId !== resource.id || rel.relationship !== 'runs-in') continue;
+    const target = ctx.document.resources.find((r) => r.id === rel.targetId);
+    if (!target || target.type !== 'aws/subnet') continue;
+    const targetName = ctx.names.get(target.id);
+    if (targetName && !names.includes(targetName)) names.push(targetName);
+  }
+
+  return names.map((name) => traversal('aws_subnet', name, 'id'));
+}
+
+function securityGroupRefs(resource: ResourceInstance, ctx: EmitterContext): HclValue[] {
+  const refs: HclValue[] = [];
+  for (const rel of ctx.document.relationships) {
+    if (rel.sourceId !== resource.id || rel.relationship !== 'attached-to') continue;
+    const target = ctx.document.resources.find((r) => r.id === rel.targetId);
+    if (!target || target.type !== 'aws/security-group') continue;
+    const targetName = ctx.names.get(target.id);
+    if (targetName) refs.push(traversal('aws_security_group', targetName, 'id'));
+  }
+  return refs;
+}
 
 /**
  * Shared naming + value-resolution for anything that can act as a "secret
@@ -87,12 +132,14 @@ export function registerAwsEmitters(): void {
     const logGroupName = `/ecs/${family}`;
     const logGroupResourceName = `${name}_logs`;
 
+    // Hand-formatted to match `terraform fmt`: `=` aligned across the run of
+    // single-line keys, widest of which is portMappings.
     const containerDefJson = [
       '[',
       '    {',
-      `      name      = "${containerName}"`,
-      `      image     = ${imageRef}`,
-      '      essential = true',
+      `      name         = "${containerName}"`,
+      `      image        = ${imageRef}`,
+      '      essential    = true',
       `      portMappings = [{ containerPort = ${containerPort}, protocol = "tcp" }]`,
       ...secretLines,
       '      logConfiguration = {',
@@ -190,6 +237,65 @@ export function registerAwsEmitters(): void {
           ? 'WARNING: secrets are injected below but no Execution Role is connected — ECS cannot pull them at task start. Connect an IAM Role via the "Execution Role" connection.'
           : undefined,
     };
+  });
+
+  registerResourceEmitter('aws/alb', (resource, ctx) => {
+    const subnets = subnetRefs(resource, ctx);
+    if (subnets.length === 0) return {};
+    return {
+      attributes: [{ name: 'subnets', value: listValue(subnets) }],
+      comment:
+        subnets.length < 2
+          ? 'WARNING: an Application Load Balancer needs subnets in at least two Availability Zones — add an "Also spans Subnet" connection to a second subnet.'
+          : undefined,
+    };
+  });
+
+  registerResourceEmitter('aws/lambda-function', (resource, ctx) => {
+    // vpc_config is only valid when the function actually runs in a VPC, and
+    // Terraform requires both subnet_ids and security_group_ids together.
+    const subnets = subnetRefs(resource, ctx);
+    const groups = securityGroupRefs(resource, ctx);
+    if (subnets.length === 0 || groups.length === 0) return {};
+
+    return {
+      blocks: [
+        {
+          blockType: 'vpc_config',
+          labels: [],
+          attributes: [
+            { name: 'subnet_ids', value: listValue(subnets) },
+            { name: 'security_group_ids', value: listValue(groups) },
+          ],
+          blocks: [],
+        },
+      ],
+    };
+  });
+
+  registerResourceEmitter('aws/dynamodb-table', (resource) => {
+    // Terraform requires an `attribute` definition for every key attribute.
+    const hashKey = String(resource.properties.hash_key || 'id');
+    const hashType = String(resource.properties.hash_key_type || 'S');
+    const rangeKey = resource.properties.range_key;
+    const rangeType = String(resource.properties.range_key_type || 'S');
+
+    const attributeBlock = (name: string, type: string) => ({
+      blockType: 'attribute',
+      labels: [] as string[],
+      attributes: [
+        { name: 'name', value: stringValue(name) },
+        { name: 'type', value: stringValue(type) },
+      ],
+      blocks: [],
+    });
+
+    const blocks = [attributeBlock(hashKey, hashType)];
+    if (typeof rangeKey === 'string' && rangeKey !== '') {
+      blocks.push(attributeBlock(rangeKey, rangeType));
+    }
+
+    return { blocks };
   });
 
   registerResourceEmitter('aws/secrets-manager-secret', (resource, ctx) => {

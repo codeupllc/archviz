@@ -187,7 +187,11 @@ describe('Secrets & variables', () => {
           id: 'param-1',
           type: 'aws/ssm-parameter',
           name: 'db-param',
-          properties: { parameter_name: '/app/db-password', type: 'SecureString' },
+          properties: {
+            parameter_name: '/app/db-password',
+            type: 'SecureString',
+            value: 'placeholder',
+          },
         }),
         resource({
           id: 'rds-1',
@@ -231,7 +235,7 @@ describe('Secrets & variables', () => {
           id: 'param-1',
           type: 'aws/ssm-parameter',
           name: 'api-key',
-          properties: { parameter_name: '/app/api-key', type: 'SecureString' },
+          properties: { parameter_name: '/app/api-key', type: 'SecureString', value: 'placeholder' },
         }),
         resource({
           id: 'taskdef-1',

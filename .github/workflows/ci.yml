@@ -42,53 +42,8 @@ jobs:
       - run: pnpm --filter @archviz/core build
       - run: pnpm --filter @archviz/provider-aws build
       - run: pnpm --filter @archviz/codegen build
-      - name: Generate fixture and validate
-        run: |
-          node --input-type=module <<'EOF'
-          import { writeFileSync, mkdirSync } from 'node:fs';
-          import { createEmptyDocument } from '@archviz/core';
-          import { createAwsRegistry } from '@archviz/provider-aws';
-          import { generateMainTf } from '@archviz/codegen';
-
-          const registry = createAwsRegistry();
-          const doc = {
-            ...createEmptyDocument('ci'),
-            resources: [
-              {
-                id: 'vpc-1',
-                type: 'aws/vpc',
-                name: 'main',
-                properties: { cidr_block: '10.0.0.0/16', enable_dns_hostnames: true, enable_dns_support: true },
-                parentId: null,
-                layout: { x: 0, y: 0 },
-              },
-              {
-                id: 'subnet-1',
-                type: 'aws/subnet',
-                name: 'public',
-                properties: { cidr_block: '10.0.1.0/24', map_public_ip_on_launch: true },
-                parentId: 'vpc-1',
-                layout: { x: 0, y: 0 },
-              },
-              {
-                id: 'ec2-1',
-                type: 'aws/ec2-instance',
-                name: 'web',
-                properties: { ami: 'ami-0c55b159cbfafe1f0', instance_type: 't3.micro' },
-                parentId: 'subnet-1',
-                layout: { x: 0, y: 0 },
-              },
-            ],
-            relationships: [],
-          };
-          mkdirSync('tmp/tf-fixture', { recursive: true });
-          writeFileSync('tmp/tf-fixture/main.tf', generateMainTf(doc, registry));
-          EOF
-      - name: terraform fmt -check
-        working-directory: tmp/tf-fixture
-        run: terraform fmt -check -diff || terraform fmt -diff
-      - name: terraform init + validate
-        working-directory: tmp/tf-fixture
-        run: |
-          terraform init -backend=false
-          terraform validate
+      # Generates a diagram using every resource type we ship and asserts the
+      # HCL is accepted by terraform validate + fmt, so a resource definition
+      # can never silently omit an argument Terraform requires.
+      - name: Generate all-resources fixture, terraform validate + fmt
+        run: node scripts/validate-fixture.mjs tmp/tf-fixture

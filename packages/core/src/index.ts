@@ -35,3 +35,5 @@ export { createConstraintEngine } from './constraints.js';
 
 export type { ValidatedGraph } from './validate.js';
 export { validate, toValidatedGraph } from './validate.js';
+
+export { normalizeDocument } from './normalize.js';

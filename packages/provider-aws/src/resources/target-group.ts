@@ -19,7 +19,7 @@ export const targetGroup = defineResource({
       relationship: 'forwards-to',
       targets: [{ type: 'aws/ec2-instance' }],
       cardinality: { maxOutgoing: null },
-      materialize: { strategy: 'resource', via: 'aws_lb_target_group_attachment' },
+      materialize: { strategy: 'lb-target-attachment' },
       label: 'Forwards to',
     },
   ],

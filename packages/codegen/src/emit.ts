@@ -20,6 +20,8 @@ export interface EmitterContext {
 export interface EmitterResult {
   /** Attributes to merge/overwrite onto this resource's own primary block. */
   attributes?: HclAttribute[];
+  /** Nested blocks to append inside this resource's own primary block (e.g. vpc_config). */
+  blocks?: HclBlock[];
   /** Extra standalone sibling blocks (companion resources, variables, etc). */
   extraBlocks?: HclBlock[];
   /** Comment prepended to this resource's own primary block (e.g. warnings). */
@@ -74,6 +76,11 @@ export function applyEmitters(
           else block.attributes.push(attr);
         }
       }
+    }
+
+    if (result.blocks) {
+      const block = blocksByResourceId.get(resource.id);
+      if (block) block.blocks.push(...result.blocks);
     }
 
     if (result.comment) {

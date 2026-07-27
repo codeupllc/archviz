@@ -38,7 +38,7 @@ export const ec2Instance = defineResource({
       relationship: 'assumes',
       targets: [{ type: 'aws/iam-role' }],
       cardinality: { maxOutgoing: 1 },
-      materialize: { strategy: 'attribute', attribute: 'iam_instance_profile' },
+      materialize: { strategy: 'instance-profile' },
       label: 'IAM Role',
     },
   ],

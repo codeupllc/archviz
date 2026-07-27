@@ -155,7 +155,9 @@ export function buildAllResourcesDocument(): ArchvizDocument {
         properties: {
           table_name: 'users',
           hash_key: 'id',
+          hash_key_type: 'S',
           range_key: 'created_at',
+          range_key_type: 'N',
           billing_mode: 'PAY_PER_REQUEST',
         },
       }),

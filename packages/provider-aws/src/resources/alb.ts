@@ -26,8 +26,17 @@ export const alb = defineResource({
       relationship: 'routes-to',
       targets: [{ type: 'aws/target-group' }],
       cardinality: { maxOutgoing: null },
-      materialize: { strategy: 'resource', via: 'aws_lb_listener' },
+      materialize: { strategy: 'lb-listener' },
       label: 'Routes to',
+    },
+    {
+      // An ALB needs at least two subnets in different AZs. Containment can
+      // only express one, so extra subnets come from these connections and the
+      // ALB emitter combines parent + connections into the `subnets` list.
+      relationship: 'runs-in',
+      targets: [{ type: 'aws/subnet' }],
+      materialize: { strategy: 'annotation' },
+      label: 'Also spans Subnet',
     },
   ],
   properties: [
@@ -53,7 +62,8 @@ export const alb = defineResource({
       internal: prop('internal'),
       load_balancer_type: prop('load_balancer_type'),
       security_groups: ref.rel('attached-to', 'id', true),
-      subnets: ref.parent('aws/subnet', 'id'),
+      // `subnets` must be a list of every subnet the ALB spans (parent +
+      // "also spans" connections) — synthesized by the ALB emitter.
     },
   },
 });

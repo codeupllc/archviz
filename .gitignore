@@ -11,5 +11,46 @@ coverage/
 .env.*
 !.env.example
 
+# ---------------------------------------------------------------------------
+# Archviz is a Terraform *generator*: this repo ships the tool, never anyone's
+# infrastructure. So all generated Terraform and all personal diagrams stay
+# local. Anything intentionally published as a sample goes under examples/,
+# which is un-ignored at the bottom of each rule below.
+# ---------------------------------------------------------------------------
+
 # Local terraform workspaces written by archviz-runner (state, tfvars, providers)
 terraform-out/
+
+# Scratch output of scripts/validate-fixture.mjs (downloads provider binaries)
+tmp/
+
+# Generated Terraform, wherever it lands. The fixture in packages/codegen
+# builds HCL in memory, so a .tf/.hcl file on disk is always someone's output.
+*.tf
+*.tf.json
+*.hcl
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# tfvars hold real secret values (the runner seeds placeholders into them)
+*.tfvars
+*.tfvars.json
+
+# Exported diagrams and the runner's per-workspace bookkeeping
+*.archviz.json
+.archviz-manifest.json
+
+# Escape hatch: sample diagrams/HCL deliberately committed for docs
+!examples/**/*.tf
+!examples/**/*.hcl
+!examples/**/*.tfvars.example
+!examples/**/*.archviz.json
+
+# Editor / local tooling
+.vscode/
+.idea/
+*.swp
