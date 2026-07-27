@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@archviz/schema": ["../../packages/schema/src"],
+      "@archviz/core": ["../../packages/core/src"],
+      "@archviz/provider-aws": ["../../packages/provider-aws/src"],
+      "@archviz/codegen": ["../../packages/codegen/src"]
+    }
+  },
+  "include": ["src/**/*"]
+}

@@ -1,0 +1,136 @@
+# Archviz
+
+Open-source visual infrastructure builder that generates idiomatic Terraform (HCL) from a node-and-edge cloud architecture diagram.
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `@archviz/schema` | Meta-schema types, `defineResource()`, ResourceRegistry |
+| `@archviz/core` | Document model, constraint engine, validator |
+| `@archviz/provider-aws` | AWS resource definitions (20 common resources) |
+| `@archviz/codegen` | Terraform HCL generator + materializers |
+| `@archviz/runner` | Local companion CLI that runs `terraform plan` for the studio |
+| `@archviz/studio` | Visual editor (React Flow + XState) |
+
+## Getting started
+
+```bash
+pnpm install
+pnpm build
+pnpm --filter @archviz/studio dev
+```
+
+Open http://localhost:5173 — drag resources from the palette onto the canvas (nest Subnets inside VPCs, EC2 inside Subnets), connect handles, edit properties, and export `main.tf`.
+
+## Development
+
+```bash
+pnpm test        # run all package tests
+pnpm typecheck   # type-check all packages
+pnpm build       # build all packages + studio
+```
+
+## Architecture highlights
+
+- **Single source of truth**: resource constraints live in TypeScript definitions (`defineResource`). The UI constraint engine and the Terraform generator both read the same registry.
+- **Semantic document**: `@xstate/store` holds the graph; React Flow and HCL are derived projections.
+- **Editor modes**: XState v5 statechart tracks connecting / dragging / editing gestures.
+- **Local-first, multi-diagram**: every diagram is its own project, autosaved to `localStorage` under its own slot. The "Diagrams" button in the toolbar opens a browser of all saved diagrams (rename, duplicate, delete, switch), "New" starts a fresh one without discarding the current one, "Import" loads an `.archviz.json` file as a new diagram, and "Download" exports the current diagram as a portable `.archviz.json` file. Export is blocked while validation errors remain.
+- **Terraform export**: "Export .tf" always writes the *current* live-preview HCL/files (shown in the right-hand Terraform panel, with tabs when there's more than one file). A toolbar dropdown picks the export layout:
+  - **Single file** — everything in `main.tf`. Uses the File System Access API to pick a location once ("Save As…" to change it later) and silently overwrite it on later exports; other browsers fall back to a normal download.
+  - **By category** — best-practice split into `versions.tf`, `providers.tf`, `variables.tf`, `network.tf`, `compute.tf`, `database.tf`, `storage.tf`, `security.tf`, `outputs.tf`. Uses the directory-picker API (or falls back to downloading each file).
+  - **Multi-service directories** — partitions resources by the "Service / Directory" field in the properties panel into independent root modules (`network/`, `api/`, `shared/`, …), each with its own by-category files. References that cross a service boundary become `data "terraform_remote_state"` lookups (with a `# TODO: configure backend` stub) instead of same-state traversals, and a generated top-level `README.md` documents the layout and naming convention.
+- **Secrets & variables**: connect a Secrets Manager Secret or SSM Parameter to a database's "Password from Secret" relationship instead of typing a password into a property — the generator emits a `random_password`/sensitive `variable` + `aws_secretsmanager_secret_version` and wires the consumer to it. Any property can also be promoted to its own `variable` via the "→ var" toggle next to its field.
+- **Auto-arrange**: one click in the toolbar packs children into their containers, sizes containers to fit, and lays the top level out in a grid. It's deterministic (same diagram → same arrangement), only runs when you ask, and is a single undo step.
+
+## AWS resources
+
+VPC, Subnet, EC2, Security Group, RDS Instance (Postgres/MySQL/MariaDB/Oracle/SQL Server), Aurora Cluster + Aurora Instance, ElastiCache (Redis/Memcached), S3, ALB, Target Group, Lambda, DynamoDB, IAM Role, ECR Repository, ECS Cluster/Task Definition/Service, Secrets Manager Secret, SSM Parameter.
+
+Most resources require a parent container (e.g. Subnet needs a VPC, EC2 needs a Subnet) — the palette shows a "needs X first" hint on anything that can't be placed yet, and the canvas highlights valid drop targets while you drag.
+
+### Docker / ECS
+
+Archviz never runs `docker build`/`push` itself — it only models the pieces Terraform needs: connect an ECS Task Definition's "Pulls image from" relationship to an ECR Repository, and set the image tag your CI pipeline pushes. The generator synthesizes the task's `container_definitions` JSON (image, port, log config) and a companion CloudWatch Log Group; actual image builds stay in your CI pipeline.
+
+The full ECS wiring, connection by connection:
+
+| Connection (drawn on canvas) | Generated Terraform |
+|---|---|
+| ECS Service *nested inside* ECS Cluster | `cluster = aws_ecs_cluster.<name>.id` |
+| ECS Service —`runs task`→ Task Definition | `task_definition = aws_ecs_task_definition.<name>.id` |
+| ECS Service —`runs in`→ Subnet (one per subnet; use 2+ for multi-AZ) | `network_configuration { subnets = [...] }` |
+| ECS Service —`attached to`→ Security Group | `network_configuration { security_groups = [...] }` |
+| ECS Service —`connects to`→ RDS / anything with a network-service capability | paired security-group ingress/egress rules |
+| Task Definition —`pulls image`→ ECR Repository | `image = "${aws_ecr_repository.<name>.repository_url}:<tag>"` inside `container_definitions` |
+| Task Definition —`injects secret`→ Secrets Manager Secret / SSM Parameter | `secrets = [{ name = "DB_SECRET", valueFrom = <arn> }]` inside `container_definitions`, plus an `aws_iam_role_policy` on the connected Execution Role granting read access to exactly those ARNs |
+
+An ECS Service intentionally *cannot* be nested inside a Subnet: a Fargate service usually spans several subnets (one per AZ), which containment can't express — that's what the `runs in` connections are for. The cluster is the parent because that's the one true 1:1 relationship in AWS.
+
+### Secrets example
+
+To give an RDS instance a password that never appears in source code:
+
+1. Drop a **Secrets Manager Secret** on the canvas. Its "Source" property picks where the value comes from: `generated-password` (default) or `variable`.
+2. Draw a connection from the **RDS Instance** to the secret — the "Password from Secret" (`uses-secret`) relationship.
+
+With `generated-password`, the export contains:
+
+```hcl
+resource "random_password" "db_secret_password" {
+  length  = 20
+  special = true
+}
+
+resource "aws_secretsmanager_secret" "db_secret" {
+  name = "db-secret"
+}
+
+resource "aws_secretsmanager_secret_version" "db_secret_version" {
+  secret_id     = aws_secretsmanager_secret.db_secret.id
+  secret_string = random_password.db_secret_password.result
+}
+
+resource "aws_db_instance" "rds_instance" {
+  # ...
+  password = random_password.db_secret_password.result
+}
+```
+
+With `variable`, the generator instead emits a `sensitive` input variable (`variable "db_secret_value" { sensitive = true }`) that you provide via `terraform.tfvars` or `TF_VAR_db_secret_value`, and wires both the secret version and the consumer to it. SSM Parameters work the same way through the same `uses-secret` relationship.
+
+ECS Task Definitions use the same `uses-secret` connection but materialize it differently: instead of wiring the plaintext value, the generator adds a `secrets` entry (`valueFrom = <secret/parameter ARN>`) to `container_definitions` — the ECS agent resolves it into an env var at task start, so the value never appears in the task definition, plan output, or ECS console — and grants the connected Execution Role `secretsmanager:GetSecretValue` / `ssm:GetParameters` on exactly those ARNs. The env var name is derived from the resource name (`db-secret` → `DB_SECRET`). If no Execution Role is connected, the export carries a `# WARNING` comment on the task definition, since ECS can't pull secrets without one.
+
+Independently of secrets, any property can be promoted to a Terraform `variable` with the "→ var" toggle next to its field in the properties panel.
+
+## Plan from the UI
+
+The studio can run `terraform plan` for you via a small local companion, since the browser itself can't execute binaries or hold AWS credentials. Start the runner and point it at a root folder for plan workspaces:
+
+```bash
+pnpm runner                       # repo root: uses ./terraform-out (gitignored)
+pnpm runner --dir <some-folder>   # or any folder you like
+```
+
+The runner binds to `127.0.0.1:4180` (only the studio origin is allowed to talk to it) and uses your local `terraform` binary and AWS credentials — nothing sensitive ever reaches the browser. Once it's running, the **Plan** button in the studio's Terraform panel lights up. Clicking it:
+
+- **Plans each diagram in its own workspace** — `<root>/<diagram-name-slug>/` — so state, provider caches, and tfvars never cross-contaminate between projects. The runner keeps a `.archviz-manifest.json` per workspace, deletes *its own* stale generated files on re-plan (e.g. `database.tf` after you remove the last database node), never touches files you put there (backend config, tfvars), and warns if a different diagram targets the same workspace folder.
+- **Seeds required variables**: any generated `variable` without a default (sensitive secret values, promoted properties with empty values) gets a `CHANGEME` placeholder appended to that workspace's `terraform.tfvars`, with a warning in the plan panel. Edit the file with real values before applying — your edits are never overwritten.
+- Runs `terraform init` (first time per workspace) and `terraform plan -detailed-exitcode`, streaming output live into a collapsible panel with a summary badge ("Plan: 1 to add, 0 to change, 0 to destroy" / "No changes"). Workspaces with real backend/state show a true diff against deployed infrastructure.
+
+Plan is available for the single-file and by-category layouts; the multi-service directories layout is N independent root modules, so plan each service from the terminal instead.
+
+## Applying the generated Terraform
+
+Archviz deliberately does not run `terraform apply` — applying infrastructure deserves a review step in your terminal. The workflow:
+
+```bash
+# after "Export .tf" (any layout)
+cd <export-directory>
+terraform init
+terraform plan     # review what will be created
+terraform apply
+```
+
+For the multi-service directories layout, apply each service directory in dependency order (e.g. `network/` before `api/`) — the generated top-level README lists them.

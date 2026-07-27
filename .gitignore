@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+*.tsbuildinfo
+coverage/
+.vite/
+*.log
+.turbo/
+.env
+.env.*
+!.env.example
+
+# Local terraform workspaces written by archviz-runner (state, tfvars, providers)
+terraform-out/

@@ -1,0 +1,25 @@
+{
+  "name": "archviz",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open-source visual infrastructure builder that generates Terraform",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @archviz/studio dev",
+    "runner": "pnpm --filter @archviz/runner build && node packages/runner/dist/cli.js --dir terraform-out",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "@archviz/codegen": "workspace:*",
+    "@archviz/provider-aws": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
