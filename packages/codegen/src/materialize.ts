@@ -140,13 +140,13 @@ export function registerBuiltinMaterializers(): void {
     const attrName = strategy.attribute;
     const value = traversal(ctx.targetDef.terraform.resourceType, targetName, 'id');
 
-    // If the attribute is already a list-style (ends with _ids), collect all
+    // If the attribute is already a list-style (ends with _ids or _groups), collect all
     const existingRels = ctx.document.relationships.filter(
       (r) =>
         r.sourceId === ctx.source.id &&
         r.relationship === ctx.relationship.relationship,
     );
-    if (attrName.endsWith('_ids') || existingRels.length > 1) {
+    if (attrName.endsWith('_ids') || attrName.endsWith('_groups') || existingRels.length > 1) {
       const values: HclValue[] = [];
       for (const rel of existingRels) {
         const t = ctx.document.resources.find((r) => r.id === rel.targetId);
