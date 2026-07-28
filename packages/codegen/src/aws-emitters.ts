@@ -197,8 +197,8 @@ export function registerAwsEmitters(): void {
         statements.push(
           [
             '      {',
-            '        Effect = "Allow"',
-            `        Action = ["${action}"]`,
+            '        Effect   = "Allow"',
+            `        Action   = ["${action}"]`,
             `        Resource = [${arns.join(', ')}]`,
             '      }',
           ].join('\n'),

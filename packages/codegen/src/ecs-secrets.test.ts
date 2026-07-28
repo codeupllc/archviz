@@ -263,9 +263,9 @@ describe('Secrets & variables', () => {
     // execution role gets a read policy scoped to exactly the connected ARNs
     expect(hcl).toContain('resource "aws_iam_role_policy" "taskdef_secrets_access"');
     expect(hcl).toMatch(/role\s+= aws_iam_role\.exec_role\.id/);
-    expect(hcl).toContain('Action = ["secretsmanager:GetSecretValue"]');
+    expect(hcl).toContain('Action   = ["secretsmanager:GetSecretValue"]');
     expect(hcl).toContain('Resource = [aws_secretsmanager_secret.db_secret.arn]');
-    expect(hcl).toContain('Action = ["ssm:GetParameters"]');
+    expect(hcl).toContain('Action   = ["ssm:GetParameters"]');
     expect(hcl).toContain('Resource = [aws_ssm_parameter.api_key.arn]');
 
     // the connection rule satisfies the constraint engine — export is not blocked
