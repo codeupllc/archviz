@@ -320,6 +320,23 @@ function iamStatementsForTarget(
     };
   }
 
+  if (targetType === 'aws/sns-topic') {
+    // SNS is publish-oriented from compute; consume is via subscription endpoints.
+    if (access !== 'produce') return null;
+    return {
+      kind: 'sns',
+      statements: [
+        [
+          '      {',
+          '        Effect   = "Allow"',
+          `        Action   = ["sns:Publish"]`,
+          `        Resource = [aws_sns_topic.${tfName}.arn]`,
+          '      }',
+        ].join('\n'),
+      ],
+    };
+  }
+
   if (targetType === 'aws/s3-bucket') {
     const bucketActions =
       access === 'produce' ? S3_PRODUCE_BUCKET_ACTIONS : S3_CONSUME_BUCKET_ACTIONS;
@@ -449,6 +466,62 @@ export const readsFromMaterializer: Materializer = (ctx) => {
   };
 };
 
+/**
+ * SNS Topic —delivers-to→ SQS Queue: subscription + queue policy allowing SNS to SendMessage.
+ */
+export const snsSqsSubscriptionMaterializer: Materializer = (ctx) => {
+  const topicName = ctx.names.get(ctx.source.id);
+  const queueName = ctx.names.get(ctx.target.id);
+  if (!topicName || !queueName) return {};
+
+  const subName = `${topicName}_to_${queueName}`;
+  const policyName = `${queueName}_from_${topicName}`;
+  const queuePolicyJson = [
+    '{',
+    '    Version = "2012-10-17"',
+    '    Statement = [',
+    '      {',
+    '        Effect    = "Allow"',
+    '        Principal = { Service = "sns.amazonaws.com" }',
+    '        Action    = "sqs:SendMessage"',
+    `        Resource  = aws_sqs_queue.${queueName}.arn`,
+    '        Condition = {',
+    '          ArnEquals = {',
+    `            "aws:SourceArn" = aws_sns_topic.${topicName}.arn`,
+    '          }',
+    '        }',
+    '      }',
+    '    ]',
+    '  }',
+  ].join('\n');
+
+  return {
+    extraBlocks: [
+      {
+        blockType: 'resource',
+        labels: ['aws_sns_topic_subscription', subName],
+        attributes: [
+          { name: 'topic_arn', value: traversal('aws_sns_topic', topicName, 'arn') },
+          { name: 'protocol', value: stringValue('sqs') },
+          { name: 'endpoint', value: traversal('aws_sqs_queue', queueName, 'arn') },
+        ],
+        blocks: [],
+        comment: `delivers-to: ${ctx.source.name} → ${ctx.target.name}`,
+      },
+      {
+        blockType: 'resource',
+        labels: ['aws_sqs_queue_policy', policyName],
+        attributes: [
+          { name: 'queue_url', value: traversal('aws_sqs_queue', queueName, 'id') },
+          { name: 'policy', value: rawValue(`jsonencode(${queuePolicyJson})`) },
+        ],
+        blocks: [],
+        comment: `Allows SNS topic "${ctx.source.name}" to deliver to queue "${ctx.target.name}"`,
+      },
+    ],
+  };
+};
+
 let awsRegistered = false;
 
 export function registerAwsMaterializers(): void {
@@ -462,5 +535,6 @@ export function registerAwsMaterializers(): void {
   registerMaterializer('api-iam', apiIamMaterializer);
   registerMaterializer('sqs-iam', apiIamMaterializer);
   registerMaterializer('reads-from', readsFromMaterializer);
+  registerMaterializer('sns-sqs-subscription', snsSqsSubscriptionMaterializer);
   awsRegistered = true;
 }

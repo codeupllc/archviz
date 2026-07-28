@@ -42,6 +42,10 @@ describe('all-resources fixture', () => {
     expect(hcl).toContain('s3:GetObject');
     expect(hcl).toContain('resource "aws_iam_role_policy" "worker_dynamodb_consume_users"');
     expect(hcl).toContain('dynamodb:GetItem');
+    expect(hcl).toMatch(/resource "aws_sns_topic" "events" \{[\s\S]*?name\s+= "app-events"/);
+    expect(hcl).toContain('resource "aws_sns_topic_subscription" "events_to_jobs"');
+    expect(hcl).toContain('resource "aws_sqs_queue_policy" "jobs_from_events"');
+    expect(hcl).toContain('sns:Publish');
 
     // DynamoDB requires an attribute definition per key
     expect(hcl).toMatch(/attribute \{\s+name = "id"\s+type = "S"/);

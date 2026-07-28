@@ -21,6 +21,7 @@ import {
   secretsManagerSecret,
   ssmParameter,
   sqsQueue,
+  snsTopic,
 } from './resources/index.js';
 
 export const awsResources: ResourceDefinition[] = [
@@ -45,6 +46,7 @@ export const awsResources: ResourceDefinition[] = [
   secretsManagerSecret,
   ssmParameter,
   sqsQueue,
+  snsTopic,
 ];
 
 export function createAwsRegistry(): ResourceRegistry {
@@ -75,5 +77,6 @@ export {
   secretsManagerSecret,
   ssmParameter,
   sqsQueue,
+  snsTopic,
 };
 export { CATEGORY_COLORS, ICON_LABELS } from './icons.js';

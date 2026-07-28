@@ -48,6 +48,7 @@ export {
   secretValueRefMaterializer,
   sqsIamMaterializer,
   apiIamMaterializer,
+  snsSqsSubscriptionMaterializer,
 } from './aws-materializers.js';
 
 export { registerAwsEmitters, secretValueRef } from './aws-emitters.js';

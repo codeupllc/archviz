@@ -53,6 +53,9 @@ export function buildDefaultOutputs(
       case 'aws/sqs-queue':
         push(`${name}_queue_url`, def.terraform.resourceType, name, 'url');
         break;
+      case 'aws/sns-topic':
+        push(`${name}_topic_arn`, def.terraform.resourceType, name, 'arn');
+        break;
       default:
         break;
     }

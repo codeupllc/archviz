@@ -197,6 +197,16 @@ function Sqs(props: IconProps): ReactElement {
   );
 }
 
+function Sns(props: IconProps): ReactElement {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="2.2" />
+      <path d="M12 5.5v2.2M12 16.3v2.2M5.5 12h2.2M16.3 12h2.2" />
+      <path d="M7.2 7.2 8.7 8.7M15.3 15.3l1.5 1.5M7.2 16.8 8.7 15.3M15.3 8.7l1.5-1.5" />
+    </svg>
+  );
+}
+
 function Generic(props: IconProps): ReactElement {
   return (
     <svg {...base} {...props}>
@@ -224,6 +234,7 @@ const ICONS: Record<string, (props: IconProps) => ReactElement> = {
   secret: Secret,
   parameter: Parameter,
   sqs: Sqs,
+  sns: Sns,
 };
 
 export function ResourceIcon({ icon, ...props }: { icon: string } & IconProps): ReactElement {

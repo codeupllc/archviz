@@ -252,6 +252,12 @@ export function buildAllResourcesDocument(): ArchvizDocument {
           message_retention_seconds: 345600,
         },
       }),
+      resource({
+        id: 'sns-1',
+        type: 'aws/sns-topic',
+        name: 'events',
+        properties: { topic_name: 'app-events', fifo_topic: false },
+      }),
     ],
     relationships: [
       { id: 'r-ec2-sg', relationship: 'attached-to', sourceId: 'ec2-1', targetId: 'sg-1' },
@@ -271,6 +277,8 @@ export function buildAllResourcesDocument(): ArchvizDocument {
       { id: 'r-lambda-ddb', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'ddb-1' },
       { id: 'r-lambda-sqs', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'sqs-1' },
       { id: 'r-lambda-sqs-write', relationship: 'writes-to', sourceId: 'lambda-1', targetId: 'sqs-1' },
+      { id: 'r-lambda-sns-write', relationship: 'writes-to', sourceId: 'lambda-1', targetId: 'sns-1' },
+      { id: 'r-sns-sqs', relationship: 'delivers-to', sourceId: 'sns-1', targetId: 'sqs-1' },
       { id: 'r-td-ecr', relationship: 'pulls-image', sourceId: 'taskdef-1', targetId: 'ecr-1' },
       {
         id: 'r-td-exec',

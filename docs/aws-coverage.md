@@ -4,7 +4,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 
 **How to update:** when you ship (or intentionally defer) a resource, edit this file in the same PR. Agents implementing new AWS nodes must follow [`.cursor/skills/add-aws-resource/SKILL.md`](../.cursor/skills/add-aws-resource/SKILL.md).
 
-**Counts:** 21 palette resources · last reviewed 2026-07-27
+**Counts:** 22 palette resources · last reviewed 2026-07-27
 
 ---
 
@@ -32,7 +32,8 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/ecs-service` | `aws_ecs_service` | compute | Parent: ECS cluster; subnets via `runs-in` |
 | ✓ | `aws/secrets-manager-secret` | `aws_secretsmanager_secret` | security | Companion version + random/variable |
 | ✓ | `aws/ssm-parameter` | `aws_ssm_parameter` | management | |
-| ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2: `reads-from` (consume IAM) vs `writes-to` (produce IAM) on assumed role |
+| ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2: `reads-from` / `writes-to` IAM on assumed role |
+| ✓ | `aws/sns-topic` | `aws_sns_topic` | integration | `writes-to` → Publish IAM; `delivers-to` → SQS subscription + queue policy |
 
 ### Companions (emitted, not palette nodes)
 
@@ -43,7 +44,9 @@ These appear in generated HCL when relationships/emitters need them — do **not
 | `aws_lb_listener` | ALB → Target Group (`routes-to`) |
 | `aws_iam_instance_profile` | EC2 → IAM Role (`assumes`) |
 | `aws_cloudwatch_log_group` | ECS Task Definition emitter |
-| `aws_iam_role_policy` | Task Def secrets + Execution Role |
+| `aws_iam_role_policy` | Task Def secrets + Execution Role; API IAM from reads-from/writes-to |
+| `aws_sns_topic_subscription` | SNS → SQS (`delivers-to`) |
+| `aws_sqs_queue_policy` | SNS → SQS delivery allow |
 | `aws_secretsmanager_secret_version` | Secrets Manager source |
 | `random_password` | Secrets Manager `generated-password` |
 | Security-group rule resources | `connects-to` / `sg-rule-pair` |
@@ -58,7 +61,6 @@ Priority = diagram value for common AWS architectures Archviz already sketches (
 
 | Candidate | Terraform type(s) | Why | Suggested connections / nesting |
 |---|---|---|---|
-| SNS Topic | `aws_sns_topic` (+ optional subscription) | Fan-out; pairs with SQS | `publishes-to` → SQS or Lambda |
 | API Gateway HTTP API | `aws_apigatewayv2_api` (+ route/integration companions) | Front Lambda without ALB | `routes-to` → Lambda |
 | CloudWatch Log Group | `aws_cloudwatch_log_group` | Standalone logs for Lambda; ECS already synthesizes one | Optional nest / `logs-to` from Lambda |
 | NLB | `aws_lb` (`load_balancer_type=network`) | TCP/UDP; ECS/EC2 already exist | Mirror ALB patterns |
@@ -113,6 +115,8 @@ Every canvas edge should answer: **what Terraform must this become?** Not every 
 | Compute → Secrets / SSM (inject) | Value/ARN wiring + often IAM | `uses-secret` | **Yes** — value ref + ECS exec-role policy | — |
 | Compute → SQS consume / produce | IAM on workload role | `reads-from` / `writes-to` | **Yes** — `api-iam` / `reads-from` | Lambda event-source mapping |
 | Compute → S3 / DynamoDB | IAM on workload role | `reads-from` / `writes-to` | **Yes** — same `api-iam` pattern (swappable on edge label) | Finer-grained actions / KMS |
+| Compute → SNS publish | IAM on workload role | `writes-to` | **Yes** — `api-iam` Publish | Lambda subscription deepen |
+| SNS → SQS fan-out | Subscription + queue policy | `delivers-to` | **Yes** — `sns-sqs-subscription` | Filter policies / raw delivery |
 | Lambda / EC2 → IAM Role | Role ARN / instance profile | `assumes` | **Partial** — Lambda attr + EC2 instance profile | Managed-policy attaches |
 | ECS Task Def → Task / Exec role | Role ARNs | `task-role` / `execution-role` | **Attrs +** secrets policy on exec | App IAM (S3/DDB) should target **task-role** |
 | ALB → Target Group | Listener | `routes-to` | **Yes** — `lb-listener` | HTTPS + ACM |

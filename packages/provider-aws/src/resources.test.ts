@@ -3,7 +3,7 @@ import { createAwsRegistry, awsResources } from './index.js';
 import { definitionsToJsonString, definitionsFromJsonString } from '@archviz/schema';
 
 describe('aws resource definitions', () => {
-  it('registers all 21 resource types', () => {
+  it('registers all 22 resource types', () => {
     const registry = createAwsRegistry();
     const ids = [
       'aws/vpc',
@@ -27,11 +27,12 @@ describe('aws resource definitions', () => {
       'aws/secrets-manager-secret',
       'aws/ssm-parameter',
       'aws/sqs-queue',
+      'aws/sns-topic',
     ];
     for (const id of ids) {
       expect(registry.get(id), id).toBeDefined();
     }
-    expect(awsResources).toHaveLength(21);
+    expect(awsResources).toHaveLength(22);
   });
 
   it('enforces nesting and capability connections', () => {
@@ -59,6 +60,6 @@ describe('aws resource definitions', () => {
   it('round-trips through JSON serializer', () => {
     const json = definitionsToJsonString(awsResources);
     const restored = definitionsFromJsonString(json);
-    expect(restored).toHaveLength(21);
+    expect(restored).toHaveLength(22);
   });
 });

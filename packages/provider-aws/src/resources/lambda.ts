@@ -49,6 +49,7 @@ export const lambdaFunction = defineResource({
         { type: 'aws/sqs-queue' },
         { type: 'aws/s3-bucket' },
         { type: 'aws/dynamodb-table' },
+        { type: 'aws/sns-topic' },
       ],
       materialize: { strategy: 'api-iam', access: 'produce' },
       label: 'Writes to',
