@@ -30,4 +30,5 @@ export const ICON_LABELS: Record<string, string> = {
   parameter: 'SSM',
   sqs: 'SQS',
   sns: 'SNS',
+  'api-gateway': 'API',
 };

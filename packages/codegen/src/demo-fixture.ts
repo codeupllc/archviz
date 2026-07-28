@@ -258,6 +258,16 @@ export function buildAllResourcesDocument(): ArchvizDocument {
         name: 'events',
         properties: { topic_name: 'app-events', fifo_topic: false },
       }),
+      resource({
+        id: 'apigw-1',
+        type: 'aws/api-gateway-http-api',
+        name: 'api',
+        properties: {
+          name: 'my-http-api',
+          protocol_type: 'HTTP',
+          description: 'HTTP API for Lambda',
+        },
+      }),
     ],
     relationships: [
       { id: 'r-ec2-sg', relationship: 'attached-to', sourceId: 'ec2-1', targetId: 'sg-1' },
@@ -279,6 +289,7 @@ export function buildAllResourcesDocument(): ArchvizDocument {
       { id: 'r-lambda-sqs-write', relationship: 'writes-to', sourceId: 'lambda-1', targetId: 'sqs-1' },
       { id: 'r-lambda-sns-write', relationship: 'writes-to', sourceId: 'lambda-1', targetId: 'sns-1' },
       { id: 'r-sns-sqs', relationship: 'delivers-to', sourceId: 'sns-1', targetId: 'sqs-1' },
+      { id: 'r-apigw-lambda', relationship: 'routes-to', sourceId: 'apigw-1', targetId: 'lambda-1' },
       { id: 'r-td-ecr', relationship: 'pulls-image', sourceId: 'taskdef-1', targetId: 'ecr-1' },
       {
         id: 'r-td-exec',
