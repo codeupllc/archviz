@@ -311,8 +311,8 @@ function iamStatementsForTarget(
       statements: [
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = [${formatActionList(actions)}]`,
+          '        Effect = "Allow"',
+          `        Action = [${formatActionList(actions)}]`,
           `        Resource = [aws_sqs_queue.${tfName}.arn]`,
           '      }',
         ].join('\n'),
@@ -328,8 +328,8 @@ function iamStatementsForTarget(
       statements: [
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = ["sns:Publish"]`,
+          '        Effect = "Allow"',
+          `        Action = ["sns:Publish"]`,
           `        Resource = [aws_sns_topic.${tfName}.arn]`,
           '      }',
         ].join('\n'),
@@ -347,15 +347,15 @@ function iamStatementsForTarget(
       statements: [
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = [${formatActionList(bucketActions)}]`,
+          '        Effect = "Allow"',
+          `        Action = [${formatActionList(bucketActions)}]`,
           `        Resource = [aws_s3_bucket.${tfName}.arn]`,
           '      }',
         ].join('\n'),
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = [${formatActionList(objectActions)}]`,
+          '        Effect = "Allow"',
+          `        Action = [${formatActionList(objectActions)}]`,
           `        Resource = ["\${aws_s3_bucket.${tfName}.arn}/*"]`,
           '      }',
         ].join('\n'),
@@ -370,8 +370,8 @@ function iamStatementsForTarget(
       statements: [
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = [${formatActionList(actions)}]`,
+          '        Effect = "Allow"',
+          `        Action = [${formatActionList(actions)}]`,
           `        Resource = [`,
           `          aws_dynamodb_table.${tfName}.arn,`,
           `          "\${aws_dynamodb_table.${tfName}.arn}/index/*",`,
