@@ -64,6 +64,15 @@ export const lambdaFunction = defineResource({
       materialize: { strategy: 'annotation' },
       label: 'Execution Role',
     },
+    {
+      // Optional connection to a standalone CloudWatch Log Group. Lambda can
+      // create a default log group automatically, so this is not required.
+      relationship: 'logs-to',
+      targets: [{ type: 'aws/cloudwatch-log-group' }],
+      cardinality: { maxOutgoing: 1 },
+      materialize: { strategy: 'annotation' },
+      label: 'Logs to',
+    },
   ],
   properties: [
     {
