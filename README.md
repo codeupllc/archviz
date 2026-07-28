@@ -23,6 +23,10 @@ pnpm --filter @archviz/studio dev
 
 Open http://localhost:5173 — drag resources from the palette onto the canvas (nest Subnets inside VPCs, EC2 inside Subnets), connect handles, edit properties, and export `main.tf`.
 
+## Contributing
+
+Pick an open item on the [Archviz AWS coverage](https://github.com/orgs/codeupllc/projects/1) board (prefer `P0` / `good first issue`), follow [CONTRIBUTING.md](CONTRIBUTING.md), and for AWS nodes use [`.cursor/skills/add-aws-resource/SKILL.md`](.cursor/skills/add-aws-resource/SKILL.md) + [`docs/aws-coverage.md`](docs/aws-coverage.md). Open a PR with `Fixes #<n>`.
+
 ## Development
 
 ```bash
