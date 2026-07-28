@@ -47,6 +47,17 @@ describe('all-resources fixture', () => {
     expect(hcl).toContain('resource "aws_sqs_queue_policy" "jobs_from_events"');
     expect(hcl).toContain('sns:Publish');
 
+    // API Gateway HTTP API integration, route, and stage
+    expect(hcl).toMatch(/resource "aws_apigatewayv2_api" "api" \{[\s\S]*?name\s+= "my-http-api"/);
+    expect(hcl).toMatch(/protocol_type\s+= "HTTP"/);
+    expect(hcl).toContain('resource "aws_apigatewayv2_integration" "api_to_worker_integration"');
+    expect(hcl).toMatch(/integration_type\s+= "AWS_PROXY"/);
+    expect(hcl).toMatch(/integration_uri\s+= aws_lambda_function\.worker\.invoke_arn/);
+    expect(hcl).toContain('resource "aws_apigatewayv2_route" "api_to_worker_route"');
+    expect(hcl).toMatch(/route_key\s+= "ANY \/\{proxy\+\}"/);
+    expect(hcl).toContain('resource "aws_apigatewayv2_stage" "api_stage"');
+    expect(hcl).toMatch(/auto_deploy\s+= true/);
+
     // DynamoDB requires an attribute definition per key
     expect(hcl).toMatch(/attribute \{\s+name = "id"\s+type = "S"/);
     expect(hcl).toMatch(/attribute \{\s+name = "created_at"\s+type = "N"/);

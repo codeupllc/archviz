@@ -4,7 +4,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 
 **How to update:** when you ship (or intentionally defer) a resource, edit this file in the same PR. Agents implementing new AWS nodes must follow [`.cursor/skills/add-aws-resource/SKILL.md`](../.cursor/skills/add-aws-resource/SKILL.md).
 
-**Counts:** 22 palette resources · last reviewed 2026-07-27
+**Counts:** 23 palette resources · last reviewed 2026-07-28
 
 ---
 
@@ -34,6 +34,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/ssm-parameter` | `aws_ssm_parameter` | management | |
 | ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2: `reads-from` / `writes-to` IAM on assumed role |
 | ✓ | `aws/sns-topic` | `aws_sns_topic` | integration | `writes-to` → Publish IAM; `delivers-to` → SQS subscription + queue policy |
+| ✓ | `aws/api-gateway-http-api` | `aws_apigatewayv2_api` | networking | HTTP API for Lambda; `routes-to` → integration/route/stage companions |
 
 ### Companions (emitted, not palette nodes)
 
@@ -49,6 +50,9 @@ These appear in generated HCL when relationships/emitters need them — do **not
 | `aws_sqs_queue_policy` | SNS → SQS delivery allow |
 | `aws_secretsmanager_secret_version` | Secrets Manager source |
 | `random_password` | Secrets Manager `generated-password` |
+| `aws_apigatewayv2_integration` | API Gateway HTTP API → Lambda (`routes-to`) |
+| `aws_apigatewayv2_route` | API Gateway HTTP API → Lambda (`routes-to`) |
+| `aws_apigatewayv2_stage` | API Gateway HTTP API auto-deploy stage |
 | Security-group rule resources | `connects-to` / `sg-rule-pair` |
 
 ---
@@ -61,7 +65,6 @@ Priority = diagram value for common AWS architectures Archviz already sketches (
 
 | Candidate | Terraform type(s) | Why | Suggested connections / nesting |
 |---|---|---|---|
-| API Gateway HTTP API | `aws_apigatewayv2_api` (+ route/integration companions) | Front Lambda without ALB | `routes-to` → Lambda |
 | CloudWatch Log Group | `aws_cloudwatch_log_group` | Standalone logs for Lambda; ECS already synthesizes one | Optional nest / `logs-to` from Lambda |
 | NLB | `aws_lb` (`load_balancer_type=network`) | TCP/UDP; ECS/EC2 already exist | Mirror ALB patterns |
 

@@ -22,6 +22,7 @@ import {
   ssmParameter,
   sqsQueue,
   snsTopic,
+  apiGatewayHttpApi,
 } from './resources/index.js';
 
 export const awsResources: ResourceDefinition[] = [
@@ -47,6 +48,7 @@ export const awsResources: ResourceDefinition[] = [
   ssmParameter,
   sqsQueue,
   snsTopic,
+  apiGatewayHttpApi,
 ];
 
 export function createAwsRegistry(): ResourceRegistry {
@@ -78,5 +80,6 @@ export {
   ssmParameter,
   sqsQueue,
   snsTopic,
+  apiGatewayHttpApi,
 };
 export { CATEGORY_COLORS, ICON_LABELS } from './icons.js';

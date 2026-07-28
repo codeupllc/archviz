@@ -19,3 +19,4 @@ export { secretsManagerSecret } from './secrets-manager.js';
 export { ssmParameter } from './ssm-parameter.js';
 export { sqsQueue } from './sqs.js';
 export { snsTopic } from './sns.js';
+export { apiGatewayHttpApi } from './api-gateway-http-api.js';

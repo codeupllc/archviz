@@ -370,8 +370,8 @@ function iamStatementsForTarget(
       statements: [
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = [${formatActionList(actions)}]`,
+          '        Effect = "Allow"',
+          `        Action = [${formatActionList(actions)}]`,
           `        Resource = [`,
           `          aws_dynamodb_table.${tfName}.arn,`,
           `          "\${aws_dynamodb_table.${tfName}.arn}/index/*",`,
@@ -522,6 +522,68 @@ export const snsSqsSubscriptionMaterializer: Materializer = (ctx) => {
   };
 };
 
+/**
+ * API Gateway HTTP API —routes-to→ Lambda becomes an integration, route, and
+ * auto-deploy stage. This creates the minimal HTTP API to Lambda proxy setup.
+ */
+export const apigwHttpRouteMaterializer: Materializer = (ctx) => {
+  const apiName = ctx.names.get(ctx.source.id);
+  const lambdaName = ctx.names.get(ctx.target.id);
+  if (!apiName || !lambdaName) return {};
+
+  const integrationName = `${apiName}_to_${lambdaName}_integration`;
+  const routeName = `${apiName}_to_${lambdaName}_route`;
+  const stageName = `${apiName}_stage`;
+
+  return {
+    extraBlocks: [
+      {
+        blockType: 'resource',
+        labels: ['aws_apigatewayv2_integration', integrationName],
+        attributes: [
+          { name: 'api_id', value: traversal('aws_apigatewayv2_api', apiName, 'id') },
+          { name: 'integration_type', value: stringValue('AWS_PROXY') },
+          { name: 'integration_method', value: stringValue('POST') },
+          {
+            name: 'integration_uri',
+            value: traversal('aws_lambda_function', lambdaName, 'invoke_arn'),
+          },
+          { name: 'payload_format_version', value: stringValue('2.0') },
+        ],
+        blocks: [],
+        comment: `routes-to: ${ctx.source.name} → ${ctx.target.name} (integration)`,
+      },
+      {
+        blockType: 'resource',
+        labels: ['aws_apigatewayv2_route', routeName],
+        attributes: [
+          { name: 'api_id', value: traversal('aws_apigatewayv2_api', apiName, 'id') },
+          { name: 'route_key', value: stringValue('ANY /{proxy+}') },
+          {
+            name: 'target',
+            value: rawValue(
+              `"integrations/\${aws_apigatewayv2_integration.${integrationName}.id}"`,
+            ),
+          },
+        ],
+        blocks: [],
+        comment: `routes-to: ${ctx.source.name} → ${ctx.target.name} (route)`,
+      },
+      {
+        blockType: 'resource',
+        labels: ['aws_apigatewayv2_stage', stageName],
+        attributes: [
+          { name: 'api_id', value: traversal('aws_apigatewayv2_api', apiName, 'id') },
+          { name: 'name', value: stringValue('$default') },
+          { name: 'auto_deploy', value: { kind: 'boolean' as const, value: true } },
+        ],
+        blocks: [],
+        comment: `Auto-deploy stage for ${ctx.source.name}`,
+      },
+    ],
+  };
+};
+
 let awsRegistered = false;
 
 export function registerAwsMaterializers(): void {
@@ -536,5 +598,6 @@ export function registerAwsMaterializers(): void {
   registerMaterializer('sqs-iam', apiIamMaterializer);
   registerMaterializer('reads-from', readsFromMaterializer);
   registerMaterializer('sns-sqs-subscription', snsSqsSubscriptionMaterializer);
+  registerMaterializer('apigw-http-route', apigwHttpRouteMaterializer);
   awsRegistered = true;
 }
