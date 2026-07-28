@@ -44,9 +44,26 @@ node scripts/validate-fixture.mjs tmp/tf-fixture
 Studio: `pnpm --filter @archviz/studio dev`  
 Local Plan: `pnpm runner` from repo root (not `npx archviz-runner`).
 
+## Demo artifact (required for UI-visible changes)
+
+If the change shows up in Studio (new/changed palette node, connection, diagnostic, properties, export preview), **include a screenshot or short video of it in action** on the PR.
+
+1. Run Studio: `pnpm --filter @archviz/studio dev`
+2. Build a minimal diagram that exercises the change (place the node, draw the new edge, show the diagnostic clear, etc.).
+3. Capture **one** of:
+   - Screenshot (PNG) of the canvas / relevant panel
+   - Short screen recording (Cloud Agent desktop/browser capture is fine)
+4. Attach it to the PR: embed in the description, upload as a PR asset, or commit under `docs/images/` and link it (same pattern as existing README screenshots).
+5. PR description should say what the media shows in one sentence.
+
+Skip only for pure docs, CI, or non-visual codegen-only PRs with no Studio surface.
+
+Cloud Agents: prefer a browser/desktop artifact of Studio over a static code dump.
+
 ## Definition of done
 
 - Tests / typecheck green; fixture validate when Terraform is available
 - Required missing connections surface as diagnostics, not invalid silent HCL
 - Coverage doc updated for new/deepened resources
+- Demo screenshot or video attached when the change is UI-visible
 - PR links the issue with `Fixes #N`

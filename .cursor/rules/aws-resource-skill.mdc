@@ -12,5 +12,6 @@ When adding or deepening AWS resources, connections, emitters, or materializers:
 2. Follow `.cursor/skills/add-aws-resource/SKILL.md`
 3. Update coverage in the same change
 4. Prefer claiming a GitHub Project item / issue and opening a PR with `Fixes #N`
+5. Attach a Studio screenshot or short video of the changed component on the PR
 
 See `AGENTS.md` for the full agent workflow.

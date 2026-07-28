@@ -110,6 +110,7 @@ Generated HCL for a minimal valid diagram:
 2. Missing required connections surface as **diagnostics**, not silent omit.
 3. User-facing data/access edges emit real HCL (or an explicit WARNING) — not silent annotation.
 4. `docs/aws-coverage.md` reflects the new reality (including the connection audit when relevant).
+5. PR includes a **screenshot or short video** of the new/changed node or connection in Studio (see `AGENTS.md`).
 
 ## Anti-patterns
 

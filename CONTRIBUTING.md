@@ -34,6 +34,7 @@ Local Plan button: `pnpm runner` (from repo root).
 - [ ] Emitters / materializers for real connections (SG or IAM as appropriate)
 - [ ] Fixture + unit tests; `validate-fixture` clean when Terraform is available
 - [ ] `docs/aws-coverage.md` updated in the same PR
+- [ ] Screenshot or short video of the node/connection in Studio (attach to PR or `docs/images/`)
 - [ ] No drive-by refactors unrelated to the issue
 
 ## Design rules (short)
