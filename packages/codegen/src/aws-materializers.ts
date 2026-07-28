@@ -370,8 +370,8 @@ function iamStatementsForTarget(
       statements: [
         [
           '      {',
-          '        Effect   = "Allow"',
-          `        Action   = [${formatActionList(actions)}]`,
+          '        Effect = "Allow"',
+          `        Action = [${formatActionList(actions)}]`,
           `        Resource = [`,
           `          aws_dynamodb_table.${tfName}.arn,`,
           `          "\${aws_dynamodb_table.${tfName}.arn}/index/*",`,
