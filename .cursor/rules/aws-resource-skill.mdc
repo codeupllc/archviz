@@ -1,0 +1,16 @@
+---
+description: AWS palette/codegen work must follow the add-aws-resource skill and coverage doc
+globs: packages/provider-aws/**/*,packages/codegen/**/*,docs/aws-coverage.md
+alwaysApply: false
+---
+
+# AWS resource changes
+
+When adding or deepening AWS resources, connections, emitters, or materializers:
+
+1. Read `docs/aws-coverage.md`
+2. Follow `.cursor/skills/add-aws-resource/SKILL.md`
+3. Update coverage in the same change
+4. Prefer claiming a GitHub Project item / issue and opening a PR with `Fixes #N`
+
+See `AGENTS.md` for the full agent workflow.

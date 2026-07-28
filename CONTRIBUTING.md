@@ -11,6 +11,8 @@ Thanks for helping build an open-source visual Terraform builder. This repo is s
 
 Living backlog detail lives in [`docs/aws-coverage.md`](docs/aws-coverage.md). Agents adding AWS nodes must follow [`.cursor/skills/add-aws-resource/SKILL.md`](.cursor/skills/add-aws-resource/SKILL.md).
 
+Coding agents should load **[AGENTS.md](AGENTS.md)** (Cursor and similar) or **[CLAUDE.md](CLAUDE.md)** (Claude Code); both point at the same workflow.
+
 ## Dev loop
 
 ```bash
