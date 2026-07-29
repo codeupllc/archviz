@@ -60,6 +60,8 @@ describe('all-resources fixture', () => {
     expect(hcl).toContain('resource "aws_apigatewayv2_route" "api_to_worker_route"');
     expect(hcl).toMatch(/route_key\s+= "ANY \/\{proxy\+\}"/);
     expect(hcl).toContain('resource "aws_apigatewayv2_stage" "api_stage"');
+    expect(hcl).toContain('resource "aws_lambda_permission" "api_invoke_worker"');
+    expect(hcl).toMatch(/principal\s+= "apigateway\.amazonaws\.com"/);
     expect(hcl).toMatch(/auto_deploy\s+= true/);
 
     // DynamoDB requires an attribute definition per key

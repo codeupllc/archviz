@@ -580,6 +580,27 @@ export const apigwHttpRouteMaterializer: Materializer = (ctx) => {
         blocks: [],
         comment: `Auto-deploy stage for ${ctx.source.name}`,
       },
+      {
+        blockType: 'resource',
+        labels: ['aws_lambda_permission', `${apiName}_invoke_${lambdaName}`],
+        attributes: [
+          { name: 'statement_id', value: stringValue(`Allow${apiName}Invoke`) },
+          { name: 'action', value: stringValue('lambda:InvokeFunction') },
+          {
+            name: 'function_name',
+            value: traversal('aws_lambda_function', lambdaName, 'function_name'),
+          },
+          { name: 'principal', value: stringValue('apigateway.amazonaws.com') },
+          {
+            name: 'source_arn',
+            value: rawValue(
+              `"\${aws_apigatewayv2_api.${apiName}.execution_arn}/*/*"`,
+            ),
+          },
+        ],
+        blocks: [],
+        comment: `routes-to: allow ${ctx.source.name} to invoke ${ctx.target.name}`,
+      },
     ],
   };
 };
