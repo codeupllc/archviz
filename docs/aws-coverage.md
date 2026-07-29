@@ -4,7 +4,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 
 **How to update:** when you ship (or intentionally defer) a resource, edit this file in the same PR. Agents implementing new AWS nodes must follow [`.cursor/skills/add-aws-resource/SKILL.md`](../.cursor/skills/add-aws-resource/SKILL.md).
 
-**Counts:** 23 palette resources · last reviewed 2026-07-28
+**Counts:** 24 palette resources · last reviewed 2026-07-28
 
 ---
 
@@ -35,6 +35,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2: `reads-from` / `writes-to` IAM on assumed role |
 | ✓ | `aws/sns-topic` | `aws_sns_topic` | integration | `writes-to` → Publish IAM; `delivers-to` → SQS subscription + queue policy |
 | ✓ | `aws/api-gateway-http-api` | `aws_apigatewayv2_api` | networking | HTTP API for Lambda; `routes-to` → integration/route/stage companions |
+| ✓ | `aws/cloudwatch-log-group` | `aws_cloudwatch_log_group` | management | Standalone logs; optional `logs-to` from Lambda |
 
 ### Companions (emitted, not palette nodes)
 
@@ -44,7 +45,7 @@ These appear in generated HCL when relationships/emitters need them — do **not
 |---|---|
 | `aws_lb_listener` | ALB → Target Group (`routes-to`) |
 | `aws_iam_instance_profile` | EC2 → IAM Role (`assumes`) |
-| `aws_cloudwatch_log_group` | ECS Task Definition emitter |
+| `aws_cloudwatch_log_group` | ECS Task Definition emitter (auto-created for containers) |
 | `aws_iam_role_policy` | Task Def secrets + Execution Role; API IAM from reads-from/writes-to |
 | `aws_sns_topic_subscription` | SNS → SQS (`delivers-to`) |
 | `aws_sqs_queue_policy` | SNS → SQS delivery allow |
@@ -65,7 +66,6 @@ Priority = diagram value for common AWS architectures Archviz already sketches (
 
 | Candidate | Terraform type(s) | Why | Suggested connections / nesting |
 |---|---|---|---|
-| CloudWatch Log Group | `aws_cloudwatch_log_group` | Standalone logs for Lambda; ECS already synthesizes one | Optional nest / `logs-to` from Lambda |
 | NLB | `aws_lb` (`load_balancer_type=network`) | TCP/UDP; ECS/EC2 already exist | Mirror ALB patterns |
 
 ### P1 — High-value architecture blocks

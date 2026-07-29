@@ -47,6 +47,10 @@ describe('all-resources fixture', () => {
     expect(hcl).toContain('resource "aws_sqs_queue_policy" "jobs_from_events"');
     expect(hcl).toContain('sns:Publish');
 
+    // CloudWatch Log Group
+    expect(hcl).toMatch(/resource "aws_cloudwatch_log_group" "lambda_logs" \{[\s\S]*?name\s+= "\/aws\/lambda\/worker"/);
+    expect(hcl).toMatch(/retention_in_days\s+= 7/);
+
     // API Gateway HTTP API integration, route, and stage
     expect(hcl).toMatch(/resource "aws_apigatewayv2_api" "api" \{[\s\S]*?name\s+= "my-http-api"/);
     expect(hcl).toMatch(/protocol_type\s+= "HTTP"/);

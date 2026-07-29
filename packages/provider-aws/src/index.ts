@@ -23,6 +23,7 @@ import {
   sqsQueue,
   snsTopic,
   apiGatewayHttpApi,
+  cloudwatchLogGroup,
 } from './resources/index.js';
 
 export const awsResources: ResourceDefinition[] = [
@@ -49,6 +50,7 @@ export const awsResources: ResourceDefinition[] = [
   sqsQueue,
   snsTopic,
   apiGatewayHttpApi,
+  cloudwatchLogGroup,
 ];
 
 export function createAwsRegistry(): ResourceRegistry {
@@ -81,5 +83,6 @@ export {
   sqsQueue,
   snsTopic,
   apiGatewayHttpApi,
+  cloudwatchLogGroup,
 };
 export { CATEGORY_COLORS, ICON_LABELS } from './icons.js';

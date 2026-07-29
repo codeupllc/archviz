@@ -189,6 +189,15 @@ export function buildAllResourcesDocument(): ArchvizDocument {
         },
       }),
       resource({
+        id: 'cwlog-1',
+        type: 'aws/cloudwatch-log-group',
+        name: 'lambda-logs',
+        properties: {
+          name: '/aws/lambda/worker',
+          retention_in_days: 7,
+        },
+      }),
+      resource({
         id: 'ecr-1',
         type: 'aws/ecr-repository',
         name: 'app-images',
@@ -284,6 +293,7 @@ export function buildAllResourcesDocument(): ArchvizDocument {
       { id: 'r-alb-tg', relationship: 'routes-to', sourceId: 'alb-1', targetId: 'tg-1' },
       { id: 'r-tg-ec2', relationship: 'forwards-to', sourceId: 'tg-1', targetId: 'ec2-1' },
       { id: 'r-lambda-role', relationship: 'assumes', sourceId: 'lambda-1', targetId: 'role-lambda' },
+      { id: 'r-lambda-logs', relationship: 'logs-to', sourceId: 'lambda-1', targetId: 'cwlog-1' },
       { id: 'r-lambda-ddb', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'ddb-1' },
       { id: 'r-lambda-sqs', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'sqs-1' },
       { id: 'r-lambda-sqs-write', relationship: 'writes-to', sourceId: 'lambda-1', targetId: 'sqs-1' },
