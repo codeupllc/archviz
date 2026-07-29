@@ -54,6 +54,7 @@ These appear in generated HCL when relationships/emitters need them — do **not
 | `aws_apigatewayv2_integration` | API Gateway HTTP API → Lambda (`routes-to`) |
 | `aws_apigatewayv2_route` | API Gateway HTTP API → Lambda (`routes-to`) |
 | `aws_apigatewayv2_stage` | API Gateway HTTP API auto-deploy stage |
+| `aws_lambda_permission` | API Gateway HTTP API → Lambda (`routes-to`) invoke allow |
 | Security-group rule resources | `connects-to` / `sg-rule-pair` |
 
 ---
