@@ -42,7 +42,8 @@ node scripts/validate-fixture.mjs tmp/tf-fixture
 ```
 
 Studio: `pnpm --filter @archviz/studio dev`  
-Local Plan: `pnpm runner` from repo root (not `npx archviz-runner`).
+Local Plan: `pnpm runner` from repo root (not `npx archviz-runner`).  
+MCP (diagram + Terraform): see [`docs/mcp.md`](docs/mcp.md) — `pnpm --filter @archviz/mcp start`.
 
 ## Demo artifact (required for UI-visible changes)
 

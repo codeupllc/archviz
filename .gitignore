@@ -54,3 +54,7 @@ crash.*.log
 .vscode/
 .idea/
 *.swp
+
+# MCP filesystem diagram store (local)
+projects/
+
