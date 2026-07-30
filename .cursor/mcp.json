@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "archviz": {
+      "command": "pnpm",
+      "args": ["--filter", "@archviz/mcp", "start"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "ARCHVIZ_PROJECTS_DIR": "${workspaceFolder}/projects"
+      }
+    }
+  }
+}
