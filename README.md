@@ -139,7 +139,21 @@ pnpm runner                       # repo root: uses ./terraform-out (gitignored)
 pnpm runner --dir <some-folder>   # or any folder you like
 ```
 
-The runner binds to `127.0.0.1:4180` (only the studio origin is allowed to talk to it) and uses your local `terraform` binary and AWS credentials — nothing sensitive ever reaches the browser. Once it's running, the **Plan** button in the studio's Terraform panel lights up. Clicking it:
+The runner loads env from (first match wins per key; shell env always wins):
+
+1. `./.env` (cwd)
+2. Archviz repo-root `.env`
+3. Sibling `../archviz-enterprise/.env` (if present)
+
+See [`.env.example`](.env.example). For LocalStack trial / current images:
+
+```bash
+# archviz/.env  — or archviz-enterprise/.env (also loaded)
+LOCALSTACK_IMAGE=localstack/localstack:latest
+LOCALSTACK_AUTH_TOKEN=ls-...
+```
+
+The runner binds to `127.0.0.1:4180` (OSS Studio `:5173` and Enterprise Studio `:5174` origins are allowed) and uses your local `terraform` binary and AWS credentials — nothing sensitive ever reaches the browser. Once it's running, the **Plan** button in the studio's Terraform panel lights up. Clicking it:
 
 - **Plans each diagram in its own workspace** — `<root>/<diagram-name-slug>/` — so state, provider caches, and tfvars never cross-contaminate between projects. The runner keeps a `.archviz-manifest.json` per workspace, deletes *its own* stale generated files on re-plan (e.g. `database.tf` after you remove the last database node), never touches files you put there (backend config, tfvars), and warns if a different diagram targets the same workspace folder.
 - **Seeds required variables**: any generated `variable` without a default (sensitive secret values, promoted properties with empty values) gets a `CHANGEME` placeholder appended to that workspace's `terraform.tfvars`, with a warning in the plan panel. Edit the file with real values before applying — your edits are never overwritten. When a variable stops being declared (you renamed it, or removed the resource), the runner drops the placeholder *it* stamped, so a rename doesn't leave a line behind that Terraform reports as `Value for undeclared variable` on every later plan. Lines it didn't stamp are always left alone.
@@ -149,7 +163,7 @@ Plan is available for the single-file and by-category layouts; the multi-service
 
 ## Applying the generated Terraform
 
-Archviz deliberately does not run `terraform apply` — applying infrastructure deserves a review step in your terminal. The workflow:
+Archviz does **not** run `terraform apply` against real AWS — that stays a deliberate review step in your terminal:
 
 ```bash
 # after "Export .tf" (any layout)
@@ -159,18 +173,22 @@ terraform plan     # review what will be created
 terraform apply
 ```
 
+**Exception — LocalStack:** the runner can apply/destroy against a local LocalStack container. Default image is `localstack/localstack:4.14.0` (no auth token). Set `LOCALSTACK_IMAGE` + `LOCALSTACK_AUTH_TOKEN` in `.env` for current / trial LocalStack. Details: [`docs/localstack.md`](docs/localstack.md).
+
+In Studio (OSS Terraform panel, or Enterprise **Live Terraform** tab): **Start** / **Apply** / **Destroy**. This never targets real AWS.
+
 For the multi-service directories layout, apply each service directory in dependency order (e.g. `network/` before `api/`) — the generated top-level README lists them.
 
 ## Scope and non-goals
 
 Archviz turns a diagram into reviewable Terraform. Everything below is left out on purpose, not missing by accident:
 
-- **No `apply`.** The runner shells out to `init` and `plan` only. Applying infrastructure deserves a review step, an approval flow, and an audit trail, none of which belong in a diagramming tool.
+- **No real-cloud `apply`.** The runner shells out to `init` and `plan` for AWS credentials. Applying to real AWS deserves a review step, an approval flow, and an audit trail. **LocalStack apply** is the only automated apply path (emulated APIs only) — see [`docs/localstack.md`](docs/localstack.md).
 - **No remote state or locking.** Archviz doesn't generate or manage an S3/DynamoDB backend. A backend has to exist before it can hold state, teams bootstrap that differently, and picking one for you would be wrong more often than right. Add your own `backend.tf` to a plan workspace — the runner treats files it didn't write as yours and won't touch them.
-- **State is incidental to what this tool proves.** Planning against empty state is the useful signal for a generator: it confirms the providers accept the HCL and every reference resolves. Point the runner at a workspace with a real backend and you get a true diff instead.
+- **State is incidental to what this tool proves.** Planning against empty state is the useful signal for a generator: it confirms the providers accept the HCL and every reference resolves. Point the runner at a workspace with a real backend and you get a true diff instead. LocalStack apply uses a separate `localstack/` workspace under the diagram slug.
 - **No secret storage.** Promoted variables are emitted without defaults so a value never gets baked into committed HCL; the real value lives in `terraform.tfvars`, which is gitignored. Secrets belong in Secrets Manager or SSM, which Archviz wires up by ARN reference — see [Secrets example](#secrets-example).
 
-If you're extending this, the natural next step is generating an opt-in `backend` block (a codegen concern, so it stays on the right side of this line) before anything that touches apply.
+If you're extending this, the natural next step is generating an opt-in `backend` block (a codegen concern, so it stays on the right side of this line) before anything that touches real-cloud apply.
 
 ## License
 

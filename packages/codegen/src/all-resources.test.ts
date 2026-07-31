@@ -118,4 +118,23 @@ describe('missing required connections', () => {
       ),
     ).toBe(true);
   });
+
+  it('flags an ECS service without Subnet (runs-in) before awsvpc Apply fails', () => {
+    const doc = buildAllResourcesDocument();
+    const withoutSubnet = {
+      ...doc,
+      relationships: doc.relationships.filter((r) => r.id !== 'r-svc-subnet-a' && r.id !== 'r-svc-subnet-b'),
+    };
+
+    const result = generate(withoutSubnet, registry, { layout: 'single-file' });
+    expect(result.blocked).toBe(true);
+    expect(
+      result.diagnostics.some(
+        (d) =>
+          d.code === 'missing-required-connection' &&
+          d.message.includes('Subnet') &&
+          d.resourceId === 'svc-1',
+      ),
+    ).toBe(true);
+  });
 });

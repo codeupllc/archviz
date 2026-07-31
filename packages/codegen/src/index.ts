@@ -54,4 +54,5 @@ export {
 export { registerAwsEmitters, secretValueRef } from './aws-emitters.js';
 export { buildPromotedVariableBlocks, collectRequiredVariables } from './variables.js';
 export { buildAllResourcesDocument } from './demo-fixture.js';
+export { buildLocalstackHobbyDocument } from './localstack-hobby-fixture.js';
 export { buildDefaultOutputs } from './outputs.js';

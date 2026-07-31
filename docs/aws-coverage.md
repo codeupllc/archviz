@@ -4,7 +4,9 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 
 **How to update:** when you ship (or intentionally defer) a resource, edit this file in the same PR. Agents implementing new AWS nodes must follow [`.cursor/skills/add-aws-resource/SKILL.md`](../.cursor/skills/add-aws-resource/SKILL.md).
 
-**Counts:** 24 palette resources · last reviewed 2026-07-28
+**LocalStack:** Hobby-compatible apply for a subset of these nodes — see [`docs/localstack.md`](./localstack.md).
+
+**Counts:** 24 palette resources · last reviewed 2026-07-30
 
 ---
 
@@ -19,7 +21,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/lambda-function` | `aws_lambda_function` | compute | Requires Execution Role (`assumes`) |
 | ✓ | `aws/alb` | `aws_lb` | networking | Multi-AZ via `runs-in`; listener via materializer |
 | ✓ | `aws/target-group` | `aws_lb_target_group` | networking | Parent: VPC |
-| ✓ | `aws/rds-instance` | `aws_db_instance` | database | `uses-secret` for password |
+| ✓ | `aws/rds-instance` | `aws_db_instance` | database | Requires SG (`attached-to`); `uses-secret` for password |
 | ✓ | `aws/aurora-cluster` | `aws_rds_cluster` | database | |
 | ✓ | `aws/aurora-cluster-instance` | `aws_rds_cluster_instance` | database | Parent: Aurora cluster |
 | ✓ | `aws/elasticache-cluster` | `aws_elasticache_cluster` | database | Redis/Memcached |
@@ -29,7 +31,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/ecr-repository` | `aws_ecr_repository` | storage | |
 | ✓ | `aws/ecs-cluster` | `aws_ecs_cluster` | compute | |
 | ✓ | `aws/ecs-task-definition` | `aws_ecs_task_definition` | compute | Emitter builds `container_definitions` + log group |
-| ✓ | `aws/ecs-service` | `aws_ecs_service` | compute | Parent: ECS cluster; subnets via `runs-in` |
+| ✓ | `aws/ecs-service` | `aws_ecs_service` | compute | Parent: ECS cluster; requires Task Def + `runs-in` Subnet + SG (`awsvpc`) |
 | ✓ | `aws/secrets-manager-secret` | `aws_secretsmanager_secret` | security | Companion version + random/variable |
 | ✓ | `aws/ssm-parameter` | `aws_ssm_parameter` | management | |
 | ✓ | `aws/sqs-queue` | `aws_sqs_queue` | integration | Lambda/ECS/EC2: `reads-from` / `writes-to` IAM on assumed role |
@@ -126,7 +128,9 @@ Every canvas edge should answer: **what Terraform must this become?** Not every 
 | ALB → Target Group | Listener | `routes-to` | **Yes** — `lb-listener` | HTTPS + ACM |
 | TG → EC2 | Attachment | `forwards-to` | **Yes** — attachment | ECS/Lambda targets |
 | Task Def → ECR | Image URI | `pulls-image` | **Yes** — emitter in `container_definitions` | Exec-role `ecr:GetAuthorizationToken` if missing |
-| ALB / Service → Subnets | Multi-AZ lists | `runs-in` | **Yes** — emitters | — |
+| ALB / Service → Subnets | Multi-AZ lists | `runs-in` | **Yes** — emitters; ECS Service `minOutgoing: 1` | — |
+| ECS Service → Task Def / SG | task_definition + network_configuration | `runs-task` / `attached-to` | **Yes** — attrs + block; both required | — |
+| RDS → SG | vpc_security_group_ids | `attached-to` | **Yes** — attr; `minOutgoing: 1` | db_subnet_group companion |
 
 ### Do services need IAM roles to “read from” a DB?
 

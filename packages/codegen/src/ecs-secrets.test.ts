@@ -106,6 +106,45 @@ describe('ECS / ECR / Docker-reference resources', () => {
     expect(hcl).toContain('task_definition');
     expect(hcl).toContain('aws_ecs_task_definition.taskdef.id');
   });
+
+  it('injects DATABASE_URL when an ECS service connects-to RDS', () => {
+    const doc = ecsDoc();
+    doc.resources.push(
+      resource({
+        id: 'sg-db',
+        type: 'aws/security-group',
+        name: 'db-sg',
+        parentId: 'vpc-1',
+        properties: { description: 'db' },
+      }),
+      resource({
+        id: 'rds-1',
+        type: 'aws/rds-instance',
+        name: 'db',
+        parentId: 'subnet-1',
+        properties: {
+          engine: 'postgres',
+          instance_class: 'db.t3.micro',
+          allocated_storage: 20,
+          username: 'admin',
+          password: 'changeme',
+          db_name: 'app',
+        },
+      }),
+    );
+    doc.relationships.push(
+      { id: 'r-svc-rds', relationship: 'connects-to', sourceId: 'service-1', targetId: 'rds-1' },
+      { id: 'r-rds-sg', relationship: 'attached-to', sourceId: 'rds-1', targetId: 'sg-db' },
+    );
+
+    const hcl = generateMainTf(doc, registry);
+    expect(hcl).toContain('DATABASE_URL');
+    expect(hcl).toContain('aws_db_instance.db.username');
+    expect(hcl).toContain('aws_db_instance.db.password');
+    expect(hcl).toContain('aws_db_instance.db.address');
+    expect(hcl).toContain('aws_db_instance.db.port');
+    expect(hcl).toContain('/app?sslmode=disable');
+  });
 });
 
 describe('Secrets & variables', () => {
@@ -120,6 +159,13 @@ describe('Secrets & variables', () => {
           name: 'subnet',
           parentId: 'vpc-1',
           properties: { cidr_block: '10.0.1.0/24' },
+        }),
+        resource({
+          id: 'sg-1',
+          type: 'aws/security-group',
+          name: 'sg',
+          parentId: 'vpc-1',
+          properties: { description: 'db sg' },
         }),
         resource({
           id: 'secret-1',
@@ -141,7 +187,10 @@ describe('Secrets & variables', () => {
           },
         }),
       ],
-      relationships: [{ id: 'r1', relationship: 'uses-secret', sourceId: 'rds-1', targetId: 'secret-1' }],
+      relationships: [
+        { id: 'r1', relationship: 'uses-secret', sourceId: 'rds-1', targetId: 'secret-1' },
+        { id: 'r-rds-sg', relationship: 'attached-to', sourceId: 'rds-1', targetId: 'sg-1' },
+      ],
     };
   }
 
@@ -184,6 +233,13 @@ describe('Secrets & variables', () => {
           properties: { cidr_block: '10.0.1.0/24' },
         }),
         resource({
+          id: 'sg-1',
+          type: 'aws/security-group',
+          name: 'sg',
+          parentId: 'vpc-1',
+          properties: { description: 'db sg' },
+        }),
+        resource({
           id: 'param-1',
           type: 'aws/ssm-parameter',
           name: 'db-param',
@@ -207,7 +263,10 @@ describe('Secrets & variables', () => {
           },
         }),
       ],
-      relationships: [{ id: 'r1', relationship: 'uses-secret', sourceId: 'rds-1', targetId: 'param-1' }],
+      relationships: [
+        { id: 'r1', relationship: 'uses-secret', sourceId: 'rds-1', targetId: 'param-1' },
+        { id: 'r-rds-sg', relationship: 'attached-to', sourceId: 'rds-1', targetId: 'sg-1' },
+      ],
     };
 
     const hcl = generateMainTf(doc, registry);

@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import { createRunnerServer, DEFAULT_ORIGINS, DEFAULT_PORT } from './server.js';
+import { loadRunnerEnv } from './load-env.js';
+
+const envFiles = loadRunnerEnv();
 
 function parseArgs(argv: string[]): {
   port: number;
@@ -30,10 +33,16 @@ function parseArgs(argv: string[]): {
     } else if (arg === '--help' || arg === '-h') {
       console.log(
         [
-          'archviz-runner — run terraform plan for Archviz Studio',
+          'archviz-runner — terraform plan + LocalStack apply for Archviz Studio',
           '',
           'Start this inside the directory you export your Terraform to',
-          '(or point at it with --dir), then click "Plan" in the studio.',
+          '(or point at it with --dir), then use Plan / LocalStack in the studio.',
+          '',
+          'LocalStack:',
+          '  Default image localstack/localstack:4.14.0 (no auth token).',
+          '  Put LOCALSTACK_AUTH_TOKEN / LOCALSTACK_IMAGE in repo .env or the environment.',
+          '  Optional LOCALSTACK_ENDPOINT (default http://127.0.0.1:4566).',
+          '  See docs/localstack.md',
           '',
           'Options:',
           '  --dir, -d <path>        Terraform directory to plan in (default: current directory)',
@@ -55,14 +64,21 @@ function parseArgs(argv: string[]): {
 
 const { port, origins, terraformBin, dir: cwd } = parseArgs(process.argv.slice(2));
 
+const lsImage = process.env.LOCALSTACK_IMAGE?.trim() || 'localstack/localstack:4.14.0';
+const hasLsToken = Boolean(process.env.LOCALSTACK_AUTH_TOKEN?.trim());
+
 const server = createRunnerServer({ cwd, origins, terraformBin });
 server.listen(port, '127.0.0.1', () => {
   console.log('archviz-runner');
   console.log(`  directory : ${cwd}`);
   console.log(`  listening : http://127.0.0.1:${port}`);
   console.log(`  origins   : ${origins.join(', ')}`);
+  if (envFiles.length > 0) {
+    console.log(`  env       : ${envFiles.join(', ')}`);
+  }
+  console.log(`  localstack: ${lsImage}${hasLsToken ? ' (+ LOCALSTACK_AUTH_TOKEN)' : ''}`);
   console.log('');
-  console.log('Open Archviz Studio and click "Plan" in the Terraform panel.');
+  console.log('Open Archviz Studio: Plan (real AWS credentials) or LocalStack Apply (emulated).');
 });
 server.on('error', (err) => {
   console.error(`Failed to start: ${err.message}`);
