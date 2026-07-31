@@ -18,6 +18,8 @@ import {
   withMutableEcrTags,
 } from './ecr-image.js';
 import { discoverLocalstackEcsServiceUrl } from './ecs-service-url.js';
+import { createOpsSession, type OpKind } from './ops-session.js';
+import type { PlanEvent } from './plan-events.js';
 import {
   collectDeclaredVariables,
   isValidVariableName,
@@ -28,6 +30,8 @@ import {
   writeManifest,
   type ProjectRef,
 } from './workspace.js';
+
+export type { PlanEvent } from './plan-events.js';
 
 export interface LocalstackHooks {
   getStatus: () => Promise<LocalstackStatus>;
@@ -50,19 +54,6 @@ export interface RunnerOptions {
   /** LocalStack lifecycle hooks (overridable for tests). */
   localstack?: LocalstackHooks;
 }
-
-export type PlanEvent =
-  | { type: 'workspace'; dir: string }
-  | {
-      type: 'phase';
-      phase: 'write' | 'init' | 'plan' | 'apply' | 'destroy' | 'start' | 'stop' | 'image' | 'service';
-    }
-  | { type: 'output'; stream: 'stdout' | 'stderr'; text: string }
-  | { type: 'info'; message: string }
-  | { type: 'warning'; message: string }
-  | { type: 'service'; url: string; swaggerUrl: string }
-  | { type: 'exit'; code: number; ok: boolean; changes: boolean | null }
-  | { type: 'error'; message: string };
 
 export const DEFAULT_PORT = 4180;
 export const DEFAULT_ORIGINS = [
@@ -240,7 +231,34 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
     stop: stopLocalstack,
     endpoint: localstackEndpoint,
   };
-  let busy = false;
+  const ops = createOpsSession();
+
+  function beginOp(kind: OpKind, res: http.ServerResponse, conflictMessage: string): ((event: PlanEvent) => void) | null {
+    if (!ops.begin(kind)) {
+      sendJson(res, 409, { error: conflictMessage });
+      return null;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+    return (event: PlanEvent) => {
+      ops.emit(event);
+      try {
+        if (!res.writableEnded) {
+          res.write(`${JSON.stringify(event)}\n`);
+        }
+      } catch {
+        /* client disconnected — op continues; subscribers still get events */
+      }
+    };
+  }
+
+  function endOp(res: http.ServerResponse): void {
+    ops.end();
+    try {
+      if (!res.writableEnded) res.end();
+    } catch {
+      /* ignore */
+    }
+  }
 
   return http.createServer(async (req, res) => {
     const origin = req.headers.origin;
@@ -272,7 +290,59 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
     if (req.method === 'GET' && url === '/api/health') {
       const version = await terraformVersion(terraformBin, cwd);
       const localstack = await ls.getStatus();
-      sendJson(res, 200, { ok: true, cwd, terraform: version, localstack });
+      const snap = ops.snapshot();
+      sendJson(res, 200, {
+        ok: true,
+        cwd,
+        terraform: version,
+        localstack,
+        busy: snap.busy,
+        op: snap.busy
+          ? { kind: snap.kind, startedAt: snap.startedAt, eventCount: snap.events.length }
+          : null,
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && url === '/api/ops/current') {
+      sendJson(res, 200, ops.snapshot());
+      return;
+    }
+
+    if (req.method === 'GET' && url === '/api/ops/stream') {
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      const snap = ops.snapshot();
+      let sawTerminal = false;
+      for (const event of snap.events) {
+        res.write(`${JSON.stringify(event)}\n`);
+        if (event.type === 'exit' || event.type === 'error') sawTerminal = true;
+      }
+      if (!snap.busy || sawTerminal) {
+        res.end();
+        return;
+      }
+      const unsubscribe = ops.subscribe((event) => {
+        try {
+          if (!res.writableEnded) {
+            res.write(`${JSON.stringify(event)}\n`);
+          }
+        } catch {
+          unsubscribe();
+        }
+        if (event.type === 'exit' || event.type === 'error') {
+          unsubscribe();
+          try {
+            if (!res.writableEnded) res.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+      req.on('close', () => unsubscribe());
       return;
     }
 
@@ -282,15 +352,8 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
     }
 
     if (req.method === 'POST' && url === '/api/localstack/start') {
-      if (busy) {
-        sendJson(res, 409, { error: 'a terraform operation is already running' });
-        return;
-      }
-      busy = true;
-      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-      const emit = (event: PlanEvent) => {
-        res.write(`${JSON.stringify(event)}\n`);
-      };
+      const emit = beginOp('start', res, 'a terraform operation is already running');
+      if (!emit) return;
       try {
         emit({ type: 'phase', phase: 'start' });
         const status = await ls.start((stream, text) => emit({ type: 'output', stream, text }));
@@ -304,22 +367,14 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       } catch (err) {
         emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
       } finally {
-        busy = false;
-        res.end();
+        endOp(res);
       }
       return;
     }
 
     if (req.method === 'POST' && url === '/api/localstack/stop') {
-      if (busy) {
-        sendJson(res, 409, { error: 'a terraform operation is already running' });
-        return;
-      }
-      busy = true;
-      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-      const emit = (event: PlanEvent) => {
-        res.write(`${JSON.stringify(event)}\n`);
-      };
+      const emit = beginOp('stop', res, 'a terraform operation is already running');
+      if (!emit) return;
       try {
         emit({ type: 'phase', phase: 'stop' });
         const status = await ls.stop((stream, text) => emit({ type: 'output', stream, text }));
@@ -328,18 +383,12 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       } catch (err) {
         emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
       } finally {
-        busy = false;
-        res.end();
+        endOp(res);
       }
       return;
     }
 
     if (req.method === 'POST' && url === '/api/plan') {
-      if (busy) {
-        sendJson(res, 409, { error: 'a plan is already running' });
-        return;
-      }
-
       let body: PlanBody;
       try {
         body = await parsePlanBody(req);
@@ -348,11 +397,8 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
         return;
       }
 
-      busy = true;
-      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-      const emit = (event: PlanEvent) => {
-        res.write(`${JSON.stringify(event)}\n`);
-      };
+      const emit = beginOp('plan', res, 'a plan is already running');
+      if (!emit) return;
 
       try {
         await runPlanPipeline({
@@ -370,8 +416,7 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       } catch (err) {
         emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
       } finally {
-        busy = false;
-        res.end();
+        endOp(res);
       }
       return;
     }
@@ -380,11 +425,6 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       req.method === 'POST' &&
       (url === '/api/localstack/apply' || url === '/api/localstack/destroy')
     ) {
-      if (busy) {
-        sendJson(res, 409, { error: 'a terraform operation is already running' });
-        return;
-      }
-
       let body: PlanBody;
       try {
         body = await parsePlanBody(req);
@@ -406,11 +446,8 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       }
 
       const action = url.endsWith('/destroy') ? 'destroy' : 'apply';
-      busy = true;
-      res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
-      const emit = (event: PlanEvent) => {
-        res.write(`${JSON.stringify(event)}\n`);
-      };
+      const emit = beginOp(action, res, 'a terraform operation is already running');
+      if (!emit) return;
 
       try {
         const status = await ls.getStatus();
@@ -471,8 +508,7 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       } catch (err) {
         emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
       } finally {
-        busy = false;
-        res.end();
+        endOp(res);
       }
       return;
     }

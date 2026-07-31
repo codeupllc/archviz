@@ -44,3 +44,5 @@ export {
   parseEcsClusterAndService,
 } from './ecs-service-url.js';
 export type { EcsServiceUrlResult } from './ecs-service-url.js';
+export { createOpsSession } from './ops-session.js';
+export type { OpKind, OpsSnapshot, OpsSession } from './ops-session.js';

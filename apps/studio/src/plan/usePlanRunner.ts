@@ -14,6 +14,8 @@ type RunnerEvent =
   | { type: 'exit'; code: number; ok: boolean; changes: boolean | null }
   | { type: 'error'; message: string };
 
+type OpKind = 'plan' | 'apply' | 'destroy' | 'start' | 'stop';
+
 export interface PlanRequestOptions {
   /** Current diagram identity — the runner plans each diagram in its own workspace subfolder. */
   project?: { id?: string; name: string };
@@ -100,9 +102,37 @@ function extractSummary(log: string): string | null {
   return null;
 }
 
+function statusForOpKind(kind: OpKind): PlanStatus {
+  if (kind === 'plan') return 'planning';
+  if (kind === 'apply') return 'applying';
+  if (kind === 'destroy') return 'destroying';
+  return 'starting';
+}
+
+async function readNdjsonStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: RunnerEvent) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim() === '') continue;
+      onEvent(JSON.parse(line) as RunnerEvent);
+    }
+  }
+}
+
 /**
  * Talks to the local archviz-runner companion: polls /api/health and streams
- * terraform plan / LocalStack apply-destroy output.
+ * terraform plan / LocalStack apply-destroy output. Reattaches after refresh
+ * when the runner still has an in-flight op (`/api/ops/stream`).
  */
 export function usePlanRunner() {
   const [connected, setConnected] = useState(false);
@@ -118,69 +148,16 @@ export function usePlanRunner() {
   const [localstackSwaggerUrl, setLocalstackSwaggerUrl] = useState<string | null>(null);
   const runningRef = useRef(false);
   const logRef = useRef('');
+  const opKindRef = useRef<OpKind | null>(null);
+  const reattachAttempted = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const check = async () => {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1500);
-        const res = await fetch(`${getRunnerUrl()}/api/health`, { signal: controller.signal });
-        clearTimeout(timer);
-        if (cancelled) return;
-        if (!res.ok) throw new Error(`health ${res.status}`);
-        const body = (await res.json()) as {
-          cwd: string;
-          terraform: string | null;
-          localstack?: LocalstackHealth;
-        };
-        if (cancelled) return;
-        setConnected(true);
-        setRunnerDir(body.cwd);
-        setTerraformVersion(body.terraform);
-        setLocalstack(body.localstack ?? null);
-      } catch {
-        if (!cancelled) {
-          setConnected(false);
-          setRunnerDir(null);
-          setTerraformVersion(null);
-          setLocalstack(null);
-        }
-      }
-    };
-
-    void check();
-    const interval = setInterval(check, HEALTH_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+  const appendLog = useCallback((text: string) => {
+    logRef.current += text;
+    setLog(logRef.current);
   }, []);
 
-  const streamNdjson = useCallback(async (path: string, body: unknown, kind: 'plan' | 'apply' | 'destroy' | 'start') => {
-    if (runningRef.current) return;
-    runningRef.current = true;
-    logRef.current = '';
-    setLog('');
-    setOutcome(null);
-    setSummary(null);
-    setWarnings([]);
-    if (kind === 'apply' || kind === 'destroy') {
-      setLocalstackServiceUrl(null);
-      setLocalstackSwaggerUrl(null);
-    }
-    if (kind === 'plan') setStatus('planning');
-    else if (kind === 'apply') setStatus('applying');
-    else if (kind === 'destroy') setStatus('destroying');
-    else setStatus('starting');
-
-    const appendLog = (text: string) => {
-      logRef.current += text;
-      setLog(logRef.current);
-    };
-
-    const handleEvent = (event: RunnerEvent) => {
+  const handleEvent = useCallback(
+    (event: RunnerEvent, kind: OpKind) => {
       switch (event.type) {
         case 'workspace':
           appendLog(`Workspace: ${event.dir}\n`);
@@ -197,6 +174,7 @@ export function usePlanRunner() {
           }
           if (event.phase === 'destroy') setStatus('destroying');
           if (event.phase === 'start') setStatus('starting');
+          if (event.phase === 'stop') setStatus('starting');
           if (event.phase === 'image') appendLog('[phase] building container image…\n');
           if (event.phase === 'service') appendLog('[phase] discovering LocalStack API URL…\n');
           break;
@@ -224,9 +202,9 @@ export function usePlanRunner() {
             } else if (kind === 'destroy') {
               setOutcome('destroyed');
               setSummary(extractSummary(logRef.current) ?? 'Destroyed on LocalStack');
-            } else if (kind === 'start') {
+            } else if (kind === 'start' || kind === 'stop') {
               setOutcome('no-changes');
-              setSummary('LocalStack ready');
+              setSummary(kind === 'start' ? 'LocalStack ready' : 'LocalStack stopped');
             } else {
               setOutcome(event.changes ? 'changes' : 'no-changes');
               setSummary(
@@ -246,60 +224,180 @@ export function usePlanRunner() {
           setSummary(event.message);
           break;
       }
-    };
+    },
+    [appendLog],
+  );
 
-    try {
-      const res = await fetch(`${getRunnerUrl()}${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+  const attachToOpsStream = useCallback(
+    async (kind: OpKind) => {
+      if (runningRef.current) return;
+      runningRef.current = true;
+      opKindRef.current = kind;
+      logRef.current = '';
+      setLog('');
+      setOutcome(null);
+      setSummary(null);
+      setWarnings([]);
+      setStatus(statusForOpKind(kind));
+      appendLog(`[reattached] Runner still running ${kind} — resuming log stream…\n`);
 
-      if (!res.ok || !res.body) {
-        let message =
-          res.status === 409
-            ? 'A terraform operation is already running in the runner.'
-            : `Runner rejected the request (${res.status}).`;
-        try {
-          const errBody = (await res.json()) as { error?: string };
-          if (errBody.error) message = errBody.error;
-        } catch {
-          /* keep default */
+      try {
+        const res = await fetch(`${getRunnerUrl()}/api/ops/stream`);
+        if (!res.ok || !res.body) {
+          appendLog(`[reattach] failed (${res.status})\n`);
+          setStatus('error');
+          setOutcome('error');
+          setSummary('Could not reattach to runner operation.');
+          return;
         }
+        await readNdjsonStream(res.body, (event) => handleEvent(event, kind));
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? `Lost connection while reattached: ${err.message}`
+            : 'Lost connection while reattached.';
         setStatus('error');
         setOutcome('error');
         setSummary(message);
         appendLog(`${message}\n`);
-        return;
+      } finally {
+        runningRef.current = false;
+        opKindRef.current = null;
       }
+    },
+    [appendLog, handleEvent],
+  );
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (line.trim() === '') continue;
-          handleEvent(JSON.parse(line) as RunnerEvent);
+  useEffect(() => {
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1500);
+        const res = await fetch(`${getRunnerUrl()}/api/health`, { signal: controller.signal });
+        clearTimeout(timer);
+        if (cancelled) return;
+        if (!res.ok) throw new Error(`health ${res.status}`);
+        const body = (await res.json()) as {
+          cwd: string;
+          terraform: string | null;
+          localstack?: LocalstackHealth;
+          busy?: boolean;
+          op?: { kind: OpKind; startedAt: string | null } | null;
+        };
+        if (cancelled) return;
+        setConnected(true);
+        setRunnerDir(body.cwd);
+        setTerraformVersion(body.terraform);
+        setLocalstack(body.localstack ?? null);
+
+        if (
+          !reattachAttempted.current &&
+          body.busy &&
+          body.op?.kind &&
+          !runningRef.current
+        ) {
+          reattachAttempted.current = true;
+          void attachToOpsStream(body.op.kind);
+        }
+      } catch {
+        if (!cancelled) {
+          setConnected(false);
+          setRunnerDir(null);
+          setTerraformVersion(null);
+          setLocalstack(null);
         }
       }
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? `Lost connection to the runner: ${err.message}`
-          : 'Lost connection to the runner.';
-      setStatus('error');
-      setOutcome('error');
-      setSummary(message);
-      appendLog(`${message}\n`);
-    } finally {
-      runningRef.current = false;
-    }
-  }, []);
+    };
+
+    void check();
+    const interval = setInterval(check, HEALTH_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [attachToOpsStream]);
+
+  const streamNdjson = useCallback(
+    async (path: string, body: unknown, kind: OpKind) => {
+      if (runningRef.current) return;
+      runningRef.current = true;
+      opKindRef.current = kind;
+      reattachAttempted.current = true;
+      logRef.current = '';
+      setLog('');
+      setOutcome(null);
+      setSummary(null);
+      setWarnings([]);
+      if (kind === 'apply' || kind === 'destroy') {
+        setLocalstackServiceUrl(null);
+        setLocalstackSwaggerUrl(null);
+      }
+      setStatus(statusForOpKind(kind));
+
+      try {
+        const res = await fetch(`${getRunnerUrl()}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok || !res.body) {
+          let message =
+            res.status === 409
+              ? 'A terraform operation is already running in the runner.'
+              : `Runner rejected the request (${res.status}).`;
+          try {
+            const errBody = (await res.json()) as { error?: string };
+            if (errBody.error) message = errBody.error;
+          } catch {
+            /* keep default */
+          }
+          if (res.status === 409) {
+            // Another tab / prior session owns the op — reattach instead of failing hard.
+            runningRef.current = false;
+            try {
+              const cur = await fetch(`${getRunnerUrl()}/api/ops/current`);
+              if (cur.ok) {
+                const snap = (await cur.json()) as {
+                  busy: boolean;
+                  kind: OpKind | null;
+                };
+                if (snap.busy && snap.kind) {
+                  appendLog(`${message} Reattaching…\n`);
+                  await attachToOpsStream(snap.kind);
+                  return;
+                }
+              }
+            } catch {
+              /* fall through */
+            }
+          }
+          setStatus('error');
+          setOutcome('error');
+          setSummary(message);
+          appendLog(`${message}\n`);
+          return;
+        }
+
+        await readNdjsonStream(res.body, (event) => handleEvent(event, kind));
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? `Lost connection to the runner: ${err.message}`
+            : 'Lost connection to the runner.';
+        setStatus('error');
+        setOutcome('error');
+        setSummary(message);
+        appendLog(`${message}\n`);
+      } finally {
+        runningRef.current = false;
+        opKindRef.current = null;
+      }
+    },
+    [appendLog, attachToOpsStream, handleEvent],
+  );
 
   const runPlan = useCallback(
     async (files: Record<string, string>, opts: PlanRequestOptions = {}) => {
