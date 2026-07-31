@@ -6,7 +6,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 
 **LocalStack:** Hobby-compatible apply for a subset of these nodes — see [`docs/localstack.md`](./localstack.md).
 
-**Counts:** 24 palette resources · last reviewed 2026-07-30
+**Counts:** 26 palette resources · last reviewed 2026-07-31
 
 ---
 
@@ -16,10 +16,12 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 |---|---|---|---|---|
 | ✓ | `aws/vpc` | `aws_vpc` | networking | |
 | ✓ | `aws/subnet` | `aws_subnet` | networking | Parent: VPC |
+| ✓ | `aws/internet-gateway` | `aws_internet_gateway` | networking | Parent: VPC |
 | ✓ | `aws/security-group` | `aws_security_group` | security | Parent: VPC; rules via `sg-rule-pair` |
 | ✓ | `aws/ec2-instance` | `aws_instance` | compute | Parent: Subnet |
 | ✓ | `aws/lambda-function` | `aws_lambda_function` | compute | Requires Execution Role (`assumes`) |
 | ✓ | `aws/alb` | `aws_lb` | networking | Multi-AZ via `runs-in`; listener via materializer |
+| ✓ | `aws/nlb` | `aws_lb` (`network`) | networking | Same subnet/listener patterns as ALB; TCP/UDP TGs |
 | ✓ | `aws/target-group` | `aws_lb_target_group` | networking | Parent: VPC |
 | ✓ | `aws/rds-instance` | `aws_db_instance` | database | Requires SG (`attached-to`); `uses-secret` for password |
 | ✓ | `aws/aurora-cluster` | `aws_rds_cluster` | database | |
@@ -27,7 +29,7 @@ Living inventory of Archviz palette nodes (`@archviz/provider-aws`) vs Terraform
 | ✓ | `aws/elasticache-cluster` | `aws_elasticache_cluster` | database | Redis/Memcached |
 | ✓ | `aws/dynamodb-table` | `aws_dynamodb_table` | database | |
 | ✓ | `aws/s3-bucket` | `aws_s3_bucket` | storage | |
-| ✓ | `aws/iam-role` | `aws_iam_role` | security | |
+| ✓ | `aws/iam-role` | `aws_iam_role` | security | `trust_principal` presets: ec2 / lambda / ecs-tasks / custom |
 | ✓ | `aws/ecr-repository` | `aws_ecr_repository` | storage | |
 | ✓ | `aws/ecs-cluster` | `aws_ecs_cluster` | compute | |
 | ✓ | `aws/ecs-task-definition` | `aws_ecs_task_definition` | compute | Emitter builds `container_definitions` + log group |
@@ -45,10 +47,11 @@ These appear in generated HCL when relationships/emitters need them — do **not
 
 | Terraform type | Triggered by |
 |---|---|
-| `aws_lb_listener` | ALB → Target Group (`routes-to`) |
+| `aws_lb_listener` | ALB/NLB → Target Group (`routes-to`) |
 | `aws_iam_instance_profile` | EC2 → IAM Role (`assumes`) |
 | `aws_cloudwatch_log_group` | ECS Task Definition emitter (auto-created for containers) |
 | `aws_iam_role_policy` | Task Def secrets + Execution Role; API IAM from reads-from/writes-to |
+| `aws_lambda_event_source_mapping` | Lambda → SQS (`reads-from`) |
 | `aws_sns_topic_subscription` | SNS → SQS (`delivers-to`) |
 | `aws_sqs_queue_policy` | SNS → SQS delivery allow |
 | `aws_secretsmanager_secret_version` | Secrets Manager source |
@@ -69,7 +72,7 @@ Priority = diagram value for common AWS architectures Archviz already sketches (
 
 | Candidate | Terraform type(s) | Why | Suggested connections / nesting |
 |---|---|---|---|
-| NLB | `aws_lb` (`load_balancer_type=network`) | TCP/UDP; ECS/EC2 already exist | Mirror ALB patterns |
+| — | — | P0 palette gaps for common flows are closed | Prefer deepen rows below |
 
 ### P1 — High-value architecture blocks
 
@@ -80,7 +83,6 @@ Priority = diagram value for common AWS architectures Archviz already sketches (
 | ACM Certificate | `aws_acm_certificate` | HTTPS on ALB/CloudFront |
 | VPC Endpoint | `aws_vpc_endpoint` | Private S3/ECR/Secrets without NAT |
 | NAT Gateway + EIP | `aws_nat_gateway`, `aws_eip` | Private subnet egress (today users hand-write) |
-| Internet Gateway | `aws_internet_gateway` | Public VPC egress (often assumed) |
 | Auto Scaling Group + Launch Template | `aws_autoscaling_group`, `aws_launch_template` | EC2 fleet behind ALB/TG |
 | EventBridge Rule | `aws_cloudwatch_event_rule` (+ target) | Schedule/event → Lambda |
 | Cognito User Pool | `aws_cognito_user_pool` (+ client) | Auth in front of API |
@@ -119,16 +121,16 @@ Every canvas edge should answer: **what Terraform must this become?** Not every 
 |---|---|---|---|---|
 | Compute → RDS / Aurora / ElastiCache | Network path (SG allow) | `connects-to` → `network-service` | **Yes** — `sg-rule-pair` | Optional later: IAM DB auth (rare); port-specific rules |
 | Compute → Secrets / SSM (inject) | Value/ARN wiring + often IAM | `uses-secret` | **Yes** — value ref + ECS exec-role policy | — |
-| Compute → SQS consume / produce | IAM on workload role | `reads-from` / `writes-to` | **Yes** — `api-iam` / `reads-from` | Lambda event-source mapping |
+| Compute → SQS consume / produce | IAM on workload role (+ ESM for Lambda consume) | `reads-from` / `writes-to` | **Yes** — `api-iam` + Lambda `aws_lambda_event_source_mapping` | DynamoDB Streams / Kinesis ESM |
 | Compute → S3 / DynamoDB | IAM on workload role | `reads-from` / `writes-to` | **Yes** — same `api-iam` pattern (swappable on edge label) | Finer-grained actions / KMS |
 | Compute → SNS publish | IAM on workload role | `writes-to` | **Yes** — `api-iam` Publish | Lambda subscription deepen |
 | SNS → SQS fan-out | Subscription + queue policy | `delivers-to` | **Yes** — `sns-sqs-subscription` | Filter policies / raw delivery |
-| Lambda / EC2 → IAM Role | Role ARN / instance profile | `assumes` | **Partial** — Lambda attr + EC2 instance profile | Managed-policy attaches |
+| Lambda / EC2 → IAM Role | Role ARN / instance profile | `assumes` | **Yes** — Lambda attr + EC2 instance profile; trust via `trust_principal` | Managed-policy attaches |
 | ECS Task Def → Task / Exec role | Role ARNs | `task-role` / `execution-role` | **Attrs +** secrets policy on exec | App IAM (S3/DDB) should target **task-role** |
-| ALB → Target Group | Listener | `routes-to` | **Yes** — `lb-listener` | HTTPS + ACM |
+| ALB / NLB → Target Group | Listener | `routes-to` | **Yes** — `lb-listener` | HTTPS + ACM |
 | TG → EC2 | Attachment | `forwards-to` | **Yes** — attachment | ECS/Lambda targets |
 | Task Def → ECR | Image URI | `pulls-image` | **Yes** — emitter in `container_definitions` | Exec-role `ecr:GetAuthorizationToken` if missing |
-| ALB / Service → Subnets | Multi-AZ lists | `runs-in` | **Yes** — emitters; ECS Service `minOutgoing: 1` | — |
+| ALB / NLB / Service → Subnets | Multi-AZ lists | `runs-in` | **Yes** — emitters; ECS Service `minOutgoing: 1` | — |
 | ECS Service → Task Def / SG | task_definition + network_configuration | `runs-task` / `attached-to` | **Yes** — attrs + block; both required | — |
 | RDS → SG | vpc_security_group_ids | `attached-to` | **Yes** — attr; `minOutgoing: 1` | db_subnet_group companion |
 
@@ -166,12 +168,12 @@ Missing workload role for SQS (and similar API edges) is a **structural error** 
 Often better than a new palette entry:
 
 1. **S3** — versioning, encryption, public access block companions; finer IAM actions
-2. **ALB** — HTTPS listener + ACM connection; path-based listener rules
-3. **Lambda** — event source mappings for SQS consume
+2. **ALB / NLB** — HTTPS listener + ACM connection; path-based listener rules
+3. **Lambda** — DynamoDB Streams / Kinesis event source mappings (SQS ESM done)
 4. **SQS** — DLQ via `redrive_policy` connection; FIFO name validation
 5. **RDS / Aurora** — subnet group companion; Performance Insights; optional IAM DB auth
-6. **IAM Role** — attach managed policy ARNs property; trust-principal presets (ecs-tasks vs ec2)
-7. **VPC** — optional IGW/NAT synthesis from properties (like ECS log group)
+6. **IAM Role** — attach managed policy ARNs property
+7. **VPC** — optional NAT synthesis from properties (IGW is a palette node)
 8. **ECR pulls** — ensure execution role can pull if not covered by managed policies
 
 ---

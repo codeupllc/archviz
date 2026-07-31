@@ -40,6 +40,16 @@ function Subnet(props: IconProps): ReactElement {
   );
 }
 
+function Igw(props: IconProps): ReactElement {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 5.5v13M5.5 12h13" />
+      <path d="M8 8.5 12 5.5 16 8.5M8 15.5 12 18.5 16 15.5" />
+    </svg>
+  );
+}
+
 function Ec2(props: IconProps): ReactElement {
   return (
     <svg {...base} {...props}>
@@ -218,12 +228,14 @@ function Generic(props: IconProps): ReactElement {
 const ICONS: Record<string, (props: IconProps) => ReactElement> = {
   vpc: Vpc,
   subnet: Subnet,
+  igw: Igw,
   ec2: Ec2,
   rds: DbCylinder,
   aurora: AuroraCluster,
   elasticache: Cache,
   s3: Bucket,
   alb: LoadBalancer,
+  nlb: LoadBalancer,
   'target-group': TargetGroup,
   sg: Shield,
   lambda: Lambda,

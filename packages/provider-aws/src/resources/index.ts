@@ -1,5 +1,6 @@
 export { vpc } from './vpc.js';
 export { subnet } from './subnet.js';
+export { internetGateway } from './internet-gateway.js';
 export { ec2Instance } from './ec2.js';
 export { securityGroup } from './security-group.js';
 export { rdsInstance } from './rds.js';
@@ -7,6 +8,7 @@ export { auroraCluster, auroraClusterInstance } from './aurora-cluster.js';
 export { elastiCacheCluster } from './elasticache.js';
 export { s3Bucket } from './s3.js';
 export { alb } from './alb.js';
+export { nlb } from './nlb.js';
 export { targetGroup } from './target-group.js';
 export { lambdaFunction } from './lambda.js';
 export { dynamodbTable } from './dynamodb.js';

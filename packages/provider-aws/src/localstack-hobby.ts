@@ -18,6 +18,7 @@ export const LOCALSTACK_HOBBY_TYPES: ReadonlySet<string> = new Set([
   'aws/vpc',
   'aws/subnet',
   'aws/security-group',
+  'aws/internet-gateway',
 ]);
 
 /**
@@ -34,6 +35,7 @@ export const LOCALSTACK_ULTIMATE_HINT_TYPES: ReadonlySet<string> = new Set([
   'aws/aurora-cluster-instance',
   'aws/elasticache-cluster',
   'aws/alb',
+  'aws/nlb',
   'aws/target-group',
   'aws/ec2-instance',
 ]);

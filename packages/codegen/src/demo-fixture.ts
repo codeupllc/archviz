@@ -58,35 +58,20 @@ export function buildAllResourcesDocument(): ArchvizDocument {
         id: 'role-exec',
         type: 'aws/iam-role',
         name: 'exec-role',
-        properties: {
-          assume_role_policy: JSON.stringify({
-            Version: '2012-10-17',
-            Statement: [
-              {
-                Action: 'sts:AssumeRole',
-                Effect: 'Allow',
-                Principal: { Service: 'ecs-tasks.amazonaws.com' },
-              },
-            ],
-          }),
-        },
+        properties: { trust_principal: 'ecs-tasks' },
       }),
       resource({
         id: 'role-lambda',
         type: 'aws/iam-role',
         name: 'lambda-role',
-        properties: {
-          assume_role_policy: JSON.stringify({
-            Version: '2012-10-17',
-            Statement: [
-              {
-                Action: 'sts:AssumeRole',
-                Effect: 'Allow',
-                Principal: { Service: 'lambda.amazonaws.com' },
-              },
-            ],
-          }),
-        },
+        properties: { trust_principal: 'lambda' },
+      }),
+      resource({
+        id: 'igw-1',
+        type: 'aws/internet-gateway',
+        name: 'main-igw',
+        parentId: 'vpc-1',
+        properties: {},
       }),
       resource({
         id: 'ec2-1',
@@ -174,6 +159,20 @@ export function buildAllResourcesDocument(): ArchvizDocument {
         name: 'public-alb',
         parentId: 'subnet-a',
         properties: { internal: false, load_balancer_type: 'application' },
+      }),
+      resource({
+        id: 'nlb-1',
+        type: 'aws/nlb',
+        name: 'public-nlb',
+        parentId: 'subnet-a',
+        properties: { internal: false, load_balancer_type: 'network' },
+      }),
+      resource({
+        id: 'tg-tcp-1',
+        type: 'aws/target-group',
+        name: 'tcp-tg',
+        parentId: 'vpc-1',
+        properties: { port: 443, protocol: 'TCP', target_type: 'instance' },
       }),
       resource({
         id: 'lambda-1',
@@ -292,6 +291,10 @@ export function buildAllResourcesDocument(): ArchvizDocument {
       { id: 'r-alb-subnet-b', relationship: 'runs-in', sourceId: 'alb-1', targetId: 'subnet-b' },
       { id: 'r-alb-tg', relationship: 'routes-to', sourceId: 'alb-1', targetId: 'tg-1' },
       { id: 'r-tg-ec2', relationship: 'forwards-to', sourceId: 'tg-1', targetId: 'ec2-1' },
+      { id: 'r-nlb-subnet-a', relationship: 'runs-in', sourceId: 'nlb-1', targetId: 'subnet-a' },
+      { id: 'r-nlb-subnet-b', relationship: 'runs-in', sourceId: 'nlb-1', targetId: 'subnet-b' },
+      { id: 'r-nlb-tg', relationship: 'routes-to', sourceId: 'nlb-1', targetId: 'tg-tcp-1' },
+      { id: 'r-tg-tcp-ec2', relationship: 'forwards-to', sourceId: 'tg-tcp-1', targetId: 'ec2-1' },
       { id: 'r-lambda-role', relationship: 'assumes', sourceId: 'lambda-1', targetId: 'role-lambda' },
       { id: 'r-lambda-logs', relationship: 'logs-to', sourceId: 'lambda-1', targetId: 'cwlog-1' },
       { id: 'r-lambda-ddb', relationship: 'reads-from', sourceId: 'lambda-1', targetId: 'ddb-1' },

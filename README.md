@@ -56,7 +56,7 @@ node scripts/validate-fixture.mjs tmp/tf-fixture
 
 ## AWS resources
 
-VPC, Subnet, EC2, Security Group, RDS Instance (Postgres/MySQL/MariaDB/Oracle/SQL Server), Aurora Cluster + Aurora Instance, ElastiCache (Redis/Memcached), S3, ALB, Target Group, Lambda, DynamoDB, IAM Role, ECR Repository, ECS Cluster/Task Definition/Service, Secrets Manager Secret, SSM Parameter, SQS Queue, SNS Topic, API Gateway HTTP API.
+VPC, Subnet, Internet Gateway, EC2, Security Group, RDS Instance (Postgres/MySQL/MariaDB/Oracle/SQL Server), Aurora Cluster + Aurora Instance, ElastiCache (Redis/Memcached), S3, ALB, NLB, Target Group, Lambda, DynamoDB, IAM Role, ECR Repository, ECS Cluster/Task Definition/Service, Secrets Manager Secret, SSM Parameter, SQS Queue, SNS Topic, API Gateway HTTP API, CloudWatch Log Group.
 
 Most resources require a parent container (e.g. Subnet needs a VPC, EC2 needs a Subnet) — the palette shows a "needs X first" hint on anything that can't be placed yet, and the canvas highlights valid drop targets while you drag.
 
