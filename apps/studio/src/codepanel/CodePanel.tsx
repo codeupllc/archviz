@@ -7,7 +7,7 @@ import { useExportSettings } from '../state/exportSettings';
 import { useProjectContext } from '../state/projectContext';
 import { PropertiesPanel } from '../properties/PropertiesPanel';
 import { useExportTerraform } from '../persistence/useExportTerraform';
-import { usePlanRunner } from '../plan/usePlanRunner';
+import { usePlanRunner, getRunnerUrl } from '../plan/usePlanRunner';
 import { PlanPanel } from '../plan/PlanPanel';
 import { TerraformToolbar } from '../plan/TerraformToolbar';
 
@@ -77,6 +77,7 @@ export function CodePanel() {
           running={plan.running}
           status={plan.status}
           terraformVersion={plan.terraformVersion}
+          runnerUrl={getRunnerUrl()}
           runnerDir={plan.runnerDir}
           localstack={plan.localstack}
           hobby={hobby}

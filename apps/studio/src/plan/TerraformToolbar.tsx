@@ -8,6 +8,8 @@ export interface TerraformToolbarProps {
   running: boolean;
   status: PlanStatus;
   terraformVersion: string | null;
+  /** Runner base URL (e.g. http://127.0.0.1:4180) — for status chips. */
+  runnerUrl?: string;
   runnerDir: string | null;
   localstack: LocalstackHealth | null;
   hobby: HobbyCompatibility;
@@ -47,6 +49,7 @@ export function TerraformToolbar(props: TerraformToolbarProps) {
     running,
     status,
     terraformVersion,
+    runnerUrl,
     runnerDir,
     localstack,
     hobby,
@@ -156,6 +159,7 @@ export function TerraformToolbar(props: TerraformToolbarProps) {
           <span>Validate</span>
           <span className="tf-toolbar__meta">
             {connected ? (terraformVersion ?? 'no terraform') : 'runner offline'}
+            {runnerUrl ? ` · ${runnerUrl.replace(/^https?:\/\//, '')}` : ''}
           </span>
         </div>
         <div className="tf-toolbar__row">
