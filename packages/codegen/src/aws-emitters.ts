@@ -299,6 +299,27 @@ export function registerAwsEmitters(): void {
     };
   });
 
+  // ECS Service → connects-to → RDS: terraform create-order wait so the
+  // service is not registered until the DB instance exists (runtime readiness
+  // still belongs in the app — LocalStack/AWS can report available before
+  // accepting connections).
+  registerResourceEmitter('aws/ecs-service', (resource, ctx) => {
+    const deps: HclValue[] = [];
+    for (const rel of ctx.document.relationships) {
+      if (rel.sourceId !== resource.id || rel.relationship !== 'connects-to') continue;
+      const target = ctx.document.resources.find((r) => r.id === rel.targetId);
+      if (!target || target.type !== 'aws/rds-instance') continue;
+      const rdsName = ctx.names.get(target.id);
+      const rdsDef = ctx.registry.get(target.type);
+      if (!rdsName || !rdsDef) continue;
+      deps.push(traversal(rdsDef.terraform.resourceType, rdsName));
+    }
+    if (deps.length === 0) return {};
+    return {
+      attributes: [{ name: 'depends_on', value: listValue(deps) }],
+    };
+  });
+
   registerResourceEmitter('aws/alb', (resource, ctx) => {
     const subnets = subnetRefs(resource, ctx);
     if (subnets.length === 0) return {};

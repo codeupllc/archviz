@@ -144,6 +144,8 @@ describe('ECS / ECR / Docker-reference resources', () => {
     expect(hcl).toContain('aws_db_instance.db.address');
     expect(hcl).toContain('aws_db_instance.db.port');
     expect(hcl).toContain('/app?sslmode=disable');
+    // Create-order: ECS service waits for RDS before registering tasks
+    expect(hcl).toMatch(/resource "aws_ecs_service" "service"[\s\S]*?depends_on\s*=\s*\[[\s\S]*?aws_db_instance\.db/);
   });
 });
 
