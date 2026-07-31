@@ -55,7 +55,10 @@ function fullStackDoc(): ArchvizDocument {
       }),
       resource({ id: 's3-1', type: 'aws/s3-bucket', name: 'assets', properties: { bucket: 'my-assets' } }),
     ],
-    relationships: [],
+    relationships: [
+      // RDS requires attached-to → Security Group (minOutgoing: 1)
+      { id: 'r-rds-sg', relationship: 'attached-to', sourceId: 'rds-1', targetId: 'sg-1' },
+    ],
   };
 }
 
