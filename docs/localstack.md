@@ -33,7 +33,9 @@ If no Dockerfile was sent, Apply still succeeds but emits a warning — containe
 
 ### DATABASE_URL (ECS → RDS)
 
-When an ECS **service** `connects-to` an RDS instance (and `runs-task` a task definition), codegen injects a container `DATABASE_URL` environment variable pointing at that `aws_db_instance`. Without the edge, SQL apps on LocalStack ECS cannot reach RDS.
+When an ECS **service** `connects-to` an RDS instance (and `runs-task` a task definition), codegen injects a container `DATABASE_URL` environment variable pointing at that `aws_db_instance` (username/password/host/port/`db_name` from Terraform attributes). Without the edge, SQL apps on LocalStack ECS cannot reach RDS.
+
+LocalStack often reports `DBName=test` even when the diagram set `db_name=app`, so the URL uses `coalesce(aws_db_instance.*.db_name, "postgres")` rather than a hard-coded diagram string.
 Optional env (also loaded from `.env` when you start the runner — Archviz root, cwd, or sibling `archviz-enterprise/.env`):
 
 | Variable | Default | Purpose |
@@ -117,8 +119,12 @@ Writes [`fixtures/localstack-hobby/`](../fixtures/localstack-hobby/) — Lambda 
 | GET | `/api/localstack/status` | Container / health |
 | POST | `/api/localstack/start` | `docker run` LocalStack |
 | POST | `/api/localstack/stop` | Remove container |
+| GET | `/api/ops/current` | In-flight op snapshot (`busy`, `kind`, buffered events) for Studio refresh reattach |
+| GET | `/api/ops/stream` | Replay buffer + live NDJSON until the op exits |
 | POST | `/api/localstack/apply` | Body like `/api/plan` + `resourceTypes[]` |
 | POST | `/api/localstack/destroy` | Same body; `terraform destroy` |
+
+After a browser refresh, Studio polls health (`busy` / `op`) and, if an Apply/Plan is still running, opens `/api/ops/stream` so Output keeps filling without starting a second terraform.
 
 Apply/destroy workspaces live under `<cwd>/<diagram-slug>/localstack/` so plan state against real AWS is never mixed with LocalStack state.
 

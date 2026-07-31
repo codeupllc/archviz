@@ -304,6 +304,50 @@ describe('runner HTTP API', () => {
     expect(status).toBe(200);
   });
 
+  it('exposes /api/ops/current and /api/ops/stream for refresh reattach', async () => {
+    await fs.mkdir(path.join(tmpDir, '.terraform'));
+    await fs.writeFile(path.join(tmpDir, 'plan-sleep'), '1');
+
+    const firstPromise = fetch(`${baseUrl}/api/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: { 'main.tf': 'resource "x" "y" {}' } }),
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const health = await fetch(`${baseUrl}/api/health`);
+    const healthBody = (await health.json()) as {
+      busy: boolean;
+      op: { kind: string } | null;
+    };
+    expect(healthBody.busy).toBe(true);
+    expect(healthBody.op?.kind).toBe('plan');
+
+    const cur = await fetch(`${baseUrl}/api/ops/current`);
+    expect(cur.status).toBe(200);
+    const snap = (await cur.json()) as {
+      busy: boolean;
+      kind: string;
+      events: PlanEvent[];
+    };
+    expect(snap.busy).toBe(true);
+    expect(snap.kind).toBe('plan');
+    expect(snap.events.length).toBeGreaterThan(0);
+
+    const streamRes = await fetch(`${baseUrl}/api/ops/stream`);
+    expect(streamRes.status).toBe(200);
+    const streamText = await streamRes.text();
+    const streamEvents = streamText
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as PlanEvent);
+    expect(streamEvents.some((e) => e.type === 'phase')).toBe(true);
+    expect(streamEvents.some((e) => e.type === 'exit')).toBe(true);
+
+    const first = await firstPromise;
+    expect(first.status).toBe(200);
+  });
+
   it('applies to LocalStack in a nested localstack workspace with provider override', async () => {
     const res = await fetch(`${baseUrl}/api/localstack/apply`, {
       method: 'POST',
