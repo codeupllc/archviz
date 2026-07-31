@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { generate, buildDirectoryExport, collectRequiredVariables } from '@archviz/codegen';
+import { checkLocalstackHobbyCompatibility } from '@archviz/provider-aws';
 import { useDiagnostics, useDocument } from '../state/hooks';
 import { useStudioServices } from '../state/StudioServices';
 import { useExportSettings } from '../state/exportSettings';
@@ -8,6 +9,7 @@ import { PropertiesPanel } from '../properties/PropertiesPanel';
 import { useExportTerraform } from '../persistence/useExportTerraform';
 import { usePlanRunner } from '../plan/usePlanRunner';
 import { PlanPanel } from '../plan/PlanPanel';
+import { TerraformToolbar } from '../plan/TerraformToolbar';
 
 export function CodePanel() {
   const archvizDoc = useDocument();
@@ -33,70 +35,59 @@ export function CodePanel() {
     return { files: result.files, requiredVariables: collectRequiredVariables(result.plan) };
   }, [archvizDoc, registry, mode]);
 
+  const resourceTypes = useMemo(
+    () => archvizDoc.resources.map((r) => r.type),
+    [archvizDoc.resources],
+  );
+  const hobby = useMemo(
+    () =>
+      checkLocalstackHobbyCompatibility(resourceTypes, {
+        paidEntitlements: Boolean(plan.localstack?.authTokenConfigured),
+      }),
+    [resourceTypes, plan.localstack?.authTokenConfigured],
+  );
+
   const filePaths = Object.keys(files).sort();
   const selected = activeFile && files[activeFile] !== undefined ? activeFile : (filePaths[0] ?? null);
   const preview = selected ? (files[selected] ?? '') : '';
+
+  const planOpts = {
+    project: { id: currentProjectId, name: archvizDoc.meta.name },
+    requiredVariables,
+    resourceTypes,
+  };
+
+  const panelTitle =
+    plan.status === 'applying' ||
+    plan.status === 'destroying' ||
+    plan.status === 'starting' ||
+    plan.outcome === 'applied' ||
+    plan.outcome === 'destroyed'
+      ? 'LocalStack'
+      : 'Plan';
 
   return (
     <aside className="right-panel">
       <PropertiesPanel />
       <div className="code-panel">
-        <div className="code-panel__header">
-          <span>Terraform</span>
-          <div className="code-panel__actions">
-            {blocked && <span className="code-panel__badge">errors</span>}
-            <button
-              type="button"
-              className="btn"
-              disabled={blocked || mode === 'directories' || !plan.connected || plan.running}
-              onClick={() =>
-                void plan.runPlan(files, {
-                  project: { id: currentProjectId, name: archvizDoc.meta.name },
-                  requiredVariables,
-                })
-              }
-              title={
-                mode === 'directories'
-                  ? 'Plan is not available for the multi-service layout (each service is its own root module) — switch to single file or by category'
-                  : !plan.connected
-                    ? 'Start the local runner first: run "npx archviz-runner" in the folder you export to'
-                    : blocked
-                      ? 'Fix errors before planning'
-                      : plan.terraformVersion === null
-                        ? 'Runner is connected but terraform was not found on its PATH'
-                        : `Run terraform plan in ${plan.runnerDir}`
-              }
-            >
-              {plan.running ? 'Planning…' : 'Plan'}
-            </button>
-            {canPickLocation && (
-              <button
-                type="button"
-                className="btn"
-                disabled={blocked}
-                onClick={() => exportTf({ forceNewLocation: true })}
-                title="Pick a different file/folder to save to"
-              >
-                Save As…
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn"
-              disabled={blocked}
-              onClick={() => exportTf()}
-              title={
-                blocked
-                  ? 'Fix errors before exporting'
-                  : canPickLocation
-                    ? 'Choose where to save (remembers your choice)'
-                    : 'Download the generated Terraform'
-              }
-            >
-              Export
-            </button>
-          </div>
-        </div>
+        <TerraformToolbar
+          blocked={blocked}
+          layoutBlocked={mode === 'directories'}
+          connected={plan.connected}
+          running={plan.running}
+          status={plan.status}
+          terraformVersion={plan.terraformVersion}
+          runnerDir={plan.runnerDir}
+          localstack={plan.localstack}
+          hobby={hobby}
+          canPickLocation={canPickLocation}
+          onPlan={() => void plan.runPlan(files, planOpts)}
+          onLocalstackApply={() => void plan.runLocalstackApply(files, planOpts)}
+          onLocalstackDestroy={() => void plan.runLocalstackDestroy(files, planOpts)}
+          onStartLocalstack={() => void plan.startLocalstack()}
+          onExport={() => exportTf()}
+          onSaveAs={canPickLocation ? () => exportTf({ forceNewLocation: true }) : undefined}
+        />
         {filePaths.length > 1 && (
           <div className="code-panel__tabs">
             {filePaths.map((path) => (
@@ -113,12 +104,14 @@ export function CodePanel() {
         )}
         <pre className="code-panel__body">{preview}</pre>
         <PlanPanel
+          title={panelTitle}
           status={plan.status}
           log={plan.log}
           outcome={plan.outcome}
           summary={plan.summary}
           warnings={plan.warnings}
           running={plan.running}
+          localstackSwaggerUrl={plan.localstackSwaggerUrl}
         />
         <div className="diagnostics">
           <div className="diagnostics__title">Diagnostics ({diagnostics.length})</div>

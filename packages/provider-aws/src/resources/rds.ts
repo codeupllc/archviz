@@ -18,7 +18,9 @@ export const rdsInstance = defineResource({
     {
       relationship: 'attached-to',
       targets: [{ type: 'aws/security-group' }],
-      cardinality: { maxOutgoing: 5 },
+      // VPC RDS needs vpc_security_group_ids; also required so ECS/EC2
+      // connects-to can emit ingress/egress sg-rule-pair companions.
+      cardinality: { maxOutgoing: 5, minOutgoing: 1 },
       materialize: { strategy: 'attribute', attribute: 'vpc_security_group_ids' },
       label: 'Security Group',
     },

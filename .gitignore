@@ -49,6 +49,11 @@ crash.*.log
 !examples/**/*.hcl
 !examples/**/*.tfvars.example
 !examples/**/*.archviz.json
+!fixtures/**/*.tf
+!fixtures/**/*.hcl
+!fixtures/**/*.zip
+!fixtures/**/*.json
+!fixtures/**/*.md
 
 # Editor / local tooling
 .vscode/

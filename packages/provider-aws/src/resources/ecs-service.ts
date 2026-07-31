@@ -18,20 +18,26 @@ export const ecsService = defineResource({
     {
       relationship: 'runs-task',
       targets: [{ type: 'aws/ecs-task-definition' }],
-      cardinality: { maxOutgoing: 1 },
+      // Fargate services are useless without a task definition — flag it.
+      cardinality: { maxOutgoing: 1, minOutgoing: 1 },
       materialize: { strategy: 'attribute', attribute: 'task_definition' },
       label: 'Task Definition',
     },
     {
       relationship: 'attached-to',
       targets: [{ type: 'aws/security-group' }],
-      cardinality: { maxOutgoing: 5 },
+      // awsvpc network_configuration.security_groups; also required for
+      // connects-to → RDS/etc to emit sg-rule-pair (both sides need an SG).
+      cardinality: { maxOutgoing: 5, minOutgoing: 1 },
       materialize: { strategy: 'annotation' },
       label: 'Security Group',
     },
     {
       relationship: 'runs-in',
       targets: [{ type: 'aws/subnet' }],
+      // Fargate / awsvpc requires network_configuration.subnets — without this
+      // edge codegen omits the block and CreateService fails at apply time.
+      cardinality: { minOutgoing: 1 },
       materialize: { strategy: 'annotation' },
       label: 'Subnet',
     },

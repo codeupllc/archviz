@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import type http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createRunnerServer, type PlanEvent } from './server.js';
+import { createRunnerServer, type PlanEvent, type LocalstackHooks } from './server.js';
 import { assertSafeRelativePath } from './files.js';
+import type { LocalstackStatus } from './localstack.js';
 
 /**
  * A fake `terraform` shell script so tests exercise the real spawn/stream
@@ -23,9 +24,38 @@ case "$1" in
     [ -f plan-exit ] && exit "$(cat plan-exit)"
     exit 2
     ;;
+  apply)
+    echo "Apply complete! Resources: 1 added, 0 changed, 0 destroyed."
+    exit 0
+    ;;
+  destroy)
+    echo "Destroy complete! Resources: 0 added, 0 changed, 1 destroyed."
+    exit 0
+    ;;
 esac
 exit 0
 `;
+
+function mockLocalstack(overrides: Partial<LocalstackStatus> = {}): LocalstackHooks {
+  const status: LocalstackStatus = {
+    running: true,
+    endpoint: 'http://127.0.0.1:4566',
+    container: 'archviz-localstack',
+    image: 'localstack/localstack:4.14.0',
+    authTokenConfigured: false,
+    dockerAvailable: true,
+    dockerSockMounted: true,
+    ecrPortsPublished: true,
+    healthy: true,
+    ...overrides,
+  };
+  return {
+    getStatus: async () => status,
+    start: async () => status,
+    stop: async () => ({ ...status, running: false, healthy: false }),
+    endpoint: () => status.endpoint,
+  };
+}
 
 let tmpDir: string;
 let stubPath: string;
@@ -41,6 +71,7 @@ beforeEach(async () => {
     cwd: tmpDir,
     terraformBin: stubPath,
     origins: ['http://localhost:5173'],
+    localstack: mockLocalstack(),
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -271,5 +302,61 @@ describe('runner HTTP API', () => {
 
     const { status } = await first;
     expect(status).toBe(200);
+  });
+
+  it('applies to LocalStack in a nested localstack workspace with provider override', async () => {
+    const res = await fetch(`${baseUrl}/api/localstack/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: {
+          'providers.tf': 'provider "aws" {\n  region = "us-east-1"\n}\n',
+          'main.tf': 'resource "aws_sqs_queue" "q" {}\n',
+        },
+        project: { id: 'proj-ls', name: 'hobby-demo' },
+        resourceTypes: ['aws/sqs-queue'],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const events = text
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as PlanEvent);
+
+    const workspace = events.find((e) => e.type === 'workspace');
+    expect(workspace).toEqual({
+      type: 'workspace',
+      dir: path.join(tmpDir, 'hobby-demo', 'localstack'),
+    });
+
+    const providers = await fs.readFile(
+      path.join(tmpDir, 'hobby-demo', 'localstack', 'providers.tf'),
+      'utf8',
+    );
+    expect(providers).toContain('skip_credentials_validation');
+    expect(providers).toContain('http://127.0.0.1:4566');
+
+    const phases = events.filter((e) => e.type === 'phase').map((e) => e.phase);
+    expect(phases).toContain('apply');
+    const exit = events.find((e) => e.type === 'exit');
+    expect(exit).toEqual({ type: 'exit', code: 0, ok: true, changes: true });
+  });
+
+  it('rejects LocalStack apply when resource types are outside Hobby', async () => {
+    const res = await fetch(`${baseUrl}/api/localstack/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: { 'main.tf': '# x' },
+        resourceTypes: ['aws/ecs-service', 'aws/rds-instance'],
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; unsupported: string[] };
+    expect(body.error).toContain('Hobby');
+    expect(body.unsupported).toEqual(
+      expect.arrayContaining(['aws/ecs-service', 'aws/rds-instance']),
+    );
   });
 });

@@ -2,7 +2,7 @@
   "name": "@archviz/runner",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Local companion CLI that runs terraform plan for Archviz Studio",
+  "description": "Local companion CLI that runs terraform plan and LocalStack apply for Archviz Studio",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,6 +21,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@archviz/provider-aws": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

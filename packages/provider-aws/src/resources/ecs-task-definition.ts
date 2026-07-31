@@ -100,6 +100,14 @@ export const ecsTaskDefinition = defineResource({
       default: 'latest',
       description: 'Tag your CI pipeline pushes to the connected ECR Repository.',
     },
+    {
+      name: 'image',
+      type: 'string',
+      required: false,
+      label: 'Image URI (override)',
+      description:
+        'Full image reference (e.g. nginx:latest). Overrides ECR when set — useful for LocalStack. Prefer connecting an ECR Repository for real AWS.',
+    },
   ],
   terraform: {
     resourceType: 'aws_ecs_task_definition',

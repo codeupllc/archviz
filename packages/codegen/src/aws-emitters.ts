@@ -83,6 +83,8 @@ export function registerAwsEmitters(): void {
     const containerName = String(resource.properties.container_name || family);
     const containerPort = Number(resource.properties.container_port ?? 80);
     const imageTag = String(resource.properties.image_tag || 'latest');
+    const imageOverride =
+      typeof resource.properties.image === 'string' ? resource.properties.image.trim() : '';
 
     const pullRel = ctx.document.relationships.find(
       (r) => r.sourceId === resource.id && r.relationship === 'pulls-image',
@@ -93,10 +95,19 @@ export function registerAwsEmitters(): void {
     const repoName = repo ? ctx.names.get(repo.id) : undefined;
     const repoDef = repo ? ctx.registry.get(repo.type) : undefined;
 
-    const imageRef =
-      repo && repoDef && repoName
-        ? `"\${${repoDef.terraform.resourceType}.${repoName}.repository_url}:${imageTag}"`
-        : `"<connect an ECR Repository to set the image>:${imageTag}"`;
+    // Priority: explicit image URI (LocalStack / digests) → ECR connection →
+    // valid public fallback (never emit angle-brackets — ECS rejects them).
+    let imageRef: string;
+    let imageComment: string | undefined;
+    if (imageOverride) {
+      imageRef = JSON.stringify(imageOverride);
+    } else if (repo && repoDef && repoName) {
+      imageRef = `"\${${repoDef.terraform.resourceType}.${repoName}.repository_url}:${imageTag}"`;
+    } else {
+      imageRef = JSON.stringify(`public.ecr.aws/docker/library/nginx:${imageTag}`);
+      imageComment =
+        'WARNING: no ECR connection or image URI — using public nginx. Connect ECR (pulls-image) or set Image URI for real deploys / LocalStack apps.';
+    }
 
     // uses-secret connections become `secrets` entries (valueFrom = <ARN>),
     // resolved by the ECS agent at task start — the value itself never
@@ -129,6 +140,49 @@ export function registerAwsEmitters(): void {
           ]
         : [];
 
+    // ECS Service → connects-to → RDS: inject DATABASE_URL so LocalStack (and
+    // real Fargate) tasks can reach the DB without a separate secrets edge.
+    const envEntries: { name: string; valueExpr: string }[] = [];
+    const servicesUsingTask = ctx.document.relationships
+      .filter((r) => r.relationship === 'runs-task' && r.targetId === resource.id)
+      .map((r) => ctx.document.resources.find((res) => res.id === r.sourceId))
+      .filter((r): r is NonNullable<typeof r> => Boolean(r));
+
+    for (const service of servicesUsingTask) {
+      for (const rel of ctx.document.relationships) {
+        if (rel.sourceId !== service.id || rel.relationship !== 'connects-to') continue;
+        const target = ctx.document.resources.find((r) => r.id === rel.targetId);
+        if (!target || target.type !== 'aws/rds-instance') continue;
+        const rdsName = ctx.names.get(target.id);
+        const rdsDef = ctx.registry.get(target.type);
+        if (!rdsName || !rdsDef) continue;
+        const tfType = rdsDef.terraform.resourceType;
+        const dbName =
+          typeof target.properties.db_name === 'string' && target.properties.db_name.trim()
+            ? target.properties.db_name.trim()
+            : 'app';
+        // Terraform interpolations inside the jsonencode string — password may
+        // itself be a ref (uses-secret) on the aws_db_instance resource.
+        envEntries.push({
+          name: 'DATABASE_URL',
+          valueExpr: `"postgres://\${${tfType}.${rdsName}.username}:\${${tfType}.${rdsName}.password}@\${${tfType}.${rdsName}.address}:\${${tfType}.${rdsName}.port}/${dbName}?sslmode=disable"`,
+        });
+        break;
+      }
+      if (envEntries.length > 0) break;
+    }
+
+    const envLines =
+      envEntries.length > 0
+        ? [
+            '      environment = [',
+            envEntries
+              .map((e) => `        { name = ${JSON.stringify(e.name)}, value = ${e.valueExpr} }`)
+              .join(',\n'),
+            '      ]',
+          ]
+        : [];
+
     const logGroupName = `/ecs/${family}`;
     const logGroupResourceName = `${name}_logs`;
 
@@ -141,6 +195,7 @@ export function registerAwsEmitters(): void {
       `      image        = ${imageRef}`,
       '      essential    = true',
       `      portMappings = [{ containerPort = ${containerPort}, protocol = "tcp" }]`,
+      ...envLines,
       ...secretLines,
       '      logConfiguration = {',
       '        logDriver = "awslogs"',
@@ -227,15 +282,20 @@ export function registerAwsEmitters(): void {
       });
     }
 
+    const comments: string[] = [];
+    if (imageComment) comments.push(imageComment);
+    if (secretEntries.length > 0 && !execRoleName) {
+      comments.push(
+        'WARNING: secrets are injected below but no Execution Role is connected — ECS cannot pull them at task start. Connect an IAM Role via the "Execution Role" connection.',
+      );
+    }
+
     return {
       attributes: [
         { name: 'container_definitions', value: rawValue(`jsonencode(${containerDefJson})`) },
       ],
       extraBlocks,
-      comment:
-        secretEntries.length > 0 && !execRoleName
-          ? 'WARNING: secrets are injected below but no Execution Role is connected — ECS cannot pull them at task start. Connect an IAM Role via the "Execution Role" connection.'
-          : undefined,
+      comment: comments.length > 0 ? comments.join(' ') : undefined,
     };
   });
 

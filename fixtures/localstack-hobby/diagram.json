@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "LocalStack Hobby",
+    "provider": "aws",
+    "createdAt": "2026-07-30T19:42:32.793Z",
+    "updatedAt": "2026-07-30T19:42:32.793Z"
+  },
+  "resources": [
+    {
+      "properties": {
+        "assume_role_policy": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":\"sts:AssumeRole\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"lambda.amazonaws.com\"}}]}"
+      },
+      "parentId": null,
+      "layout": {
+        "x": 80,
+        "y": 120
+      },
+      "id": "role-lambda",
+      "type": "aws/iam-role",
+      "name": "lambda-role"
+    },
+    {
+      "properties": {
+        "table_name": "archviz-hobby-items",
+        "hash_key": "id",
+        "hash_key_type": "S",
+        "billing_mode": "PAY_PER_REQUEST"
+      },
+      "parentId": null,
+      "layout": {
+        "x": 420,
+        "y": 240
+      },
+      "id": "table-1",
+      "type": "aws/dynamodb-table",
+      "name": "items"
+    },
+    {
+      "properties": {
+        "function_name": "archviz-hobby-handler",
+        "runtime": "nodejs20.x",
+        "handler": "index.handler",
+        "filename": "function.zip"
+      },
+      "parentId": null,
+      "layout": {
+        "x": 420,
+        "y": 80
+      },
+      "id": "fn-1",
+      "type": "aws/lambda-function",
+      "name": "handler"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "c-assumes",
+      "sourceId": "fn-1",
+      "targetId": "role-lambda",
+      "relationship": "assumes"
+    },
+    {
+      "id": "c-reads",
+      "sourceId": "fn-1",
+      "targetId": "table-1",
+      "relationship": "reads-from"
+    }
+  ]
+}

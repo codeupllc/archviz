@@ -86,3 +86,10 @@ export {
   cloudwatchLogGroup,
 };
 export { CATEGORY_COLORS, ICON_LABELS } from './icons.js';
+export {
+  LOCALSTACK_HOBBY_TYPES,
+  LOCALSTACK_ULTIMATE_HINT_TYPES,
+  LOCALSTACK_UPGRADE_HINT,
+  checkLocalstackHobbyCompatibility,
+} from './localstack-hobby.js';
+export type { HobbyCompatibility, LocalstackCompatibilityOptions } from './localstack-hobby.js';
