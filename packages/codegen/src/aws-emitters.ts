@@ -330,6 +330,62 @@ export function registerAwsEmitters(): void {
     };
   });
 
+  registerResourceEmitter('aws/nlb', (resource, ctx) => {
+    const subnets = subnetRefs(resource, ctx);
+    if (subnets.length === 0) return {};
+    return {
+      attributes: [{ name: 'subnets', value: listValue(subnets) }],
+      comment:
+        subnets.length < 2
+          ? 'WARNING: a Network Load Balancer needs subnets in at least two Availability Zones — add an "Also spans Subnet" connection to a second subnet.'
+          : undefined,
+    };
+  });
+
+  registerResourceEmitter('aws/iam-role', (resource) => {
+    const presetRaw = resource.properties.trust_principal;
+    const customPolicy = resource.properties.assume_role_policy;
+    // Preserve hand-written JSON when Trusted Service is Custom, or when an
+    // older diagram only has assume_role_policy (no trust_principal yet).
+    if (
+      presetRaw === 'custom' ||
+      (presetRaw === undefined &&
+        typeof customPolicy === 'string' &&
+        customPolicy.trim().length > 0)
+    ) {
+      return {};
+    }
+
+    const preset = String(presetRaw || 'ec2');
+    const serviceByPreset: Record<string, string> = {
+      ec2: 'ec2.amazonaws.com',
+      lambda: 'lambda.amazonaws.com',
+      'ecs-tasks': 'ecs-tasks.amazonaws.com',
+    };
+    const service = serviceByPreset[preset];
+    if (!service) return {};
+
+    const policy = {
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Action: 'sts:AssumeRole',
+          Effect: 'Allow',
+          Principal: { Service: service },
+        },
+      ],
+    };
+
+    return {
+      attributes: [
+        {
+          name: 'assume_role_policy',
+          value: stringValue(JSON.stringify(policy)),
+        },
+      ],
+    };
+  });
+
   registerResourceEmitter('aws/lambda-function', (resource, ctx) => {
     // vpc_config is only valid when the function actually runs in a VPC, and
     // Terraform requires both subnet_ids and security_group_ids together.

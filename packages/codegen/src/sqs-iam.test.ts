@@ -54,6 +54,9 @@ describe('SQS IAM from reads-from / writes-to', () => {
     expect(hcl).toMatch(/Action\s+=\s+\["sqs:SendMessage"/);
     expect(hcl).toContain('Resource = [aws_sqs_queue.jobs.arn]');
     expect(hcl).toContain('role = aws_iam_role.fn_role.id');
+    expect(hcl).toContain('resource "aws_lambda_event_source_mapping" "worker_from_jobs"');
+    expect(hcl).toContain('event_source_arn = aws_sqs_queue.jobs.arn');
+    expect(hcl).toContain('function_name    = aws_lambda_function.worker.arn');
   });
 
   it('warns and skips IAM when no role is assumed', () => {

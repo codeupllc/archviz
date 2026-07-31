@@ -2,6 +2,7 @@ import { ResourceRegistry, type ResourceDefinition } from '@archviz/schema';
 import {
   vpc,
   subnet,
+  internetGateway,
   ec2Instance,
   securityGroup,
   rdsInstance,
@@ -10,6 +11,7 @@ import {
   elastiCacheCluster,
   s3Bucket,
   alb,
+  nlb,
   targetGroup,
   lambdaFunction,
   dynamodbTable,
@@ -29,6 +31,7 @@ import {
 export const awsResources: ResourceDefinition[] = [
   vpc,
   subnet,
+  internetGateway,
   ec2Instance,
   securityGroup,
   rdsInstance,
@@ -37,6 +40,7 @@ export const awsResources: ResourceDefinition[] = [
   elastiCacheCluster,
   s3Bucket,
   alb,
+  nlb,
   targetGroup,
   lambdaFunction,
   dynamodbTable,
@@ -62,6 +66,7 @@ export function createAwsRegistry(): ResourceRegistry {
 export {
   vpc,
   subnet,
+  internetGateway,
   ec2Instance,
   securityGroup,
   rdsInstance,
@@ -70,6 +75,7 @@ export {
   elastiCacheCluster,
   s3Bucket,
   alb,
+  nlb,
   targetGroup,
   lambdaFunction,
   dynamodbTable,

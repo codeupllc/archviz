@@ -20,16 +20,7 @@ export function buildLocalstackHobbyDocument(): ArchvizDocument {
         name: 'lambda-role',
         layout: { x: 80, y: 120 },
         properties: {
-          assume_role_policy: JSON.stringify({
-            Version: '2012-10-17',
-            Statement: [
-              {
-                Action: 'sts:AssumeRole',
-                Effect: 'Allow',
-                Principal: { Service: 'lambda.amazonaws.com' },
-              },
-            ],
-          }),
+          trust_principal: 'lambda',
         },
       }),
       resource({

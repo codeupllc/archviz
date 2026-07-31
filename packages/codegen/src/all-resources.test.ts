@@ -36,6 +36,7 @@ describe('all-resources fixture', () => {
     expect(hcl).toMatch(/resource "aws_sqs_queue" "jobs" \{[\s\S]*?name\s+= "app-jobs"/);
     expect(hcl).toContain('resource "aws_iam_role_policy" "worker_sqs_consume_jobs"');
     expect(hcl).toContain('sqs:ReceiveMessage');
+    expect(hcl).toContain('resource "aws_lambda_event_source_mapping" "worker_from_jobs"');
     expect(hcl).toContain('resource "aws_iam_role_policy" "worker_sqs_produce_jobs"');
     expect(hcl).toContain('sqs:SendMessage');
     expect(hcl).toContain('resource "aws_iam_role_policy" "web_s3_consume_assets"');
@@ -77,6 +78,11 @@ describe('all-resources fixture', () => {
     expect(hcl).toContain('resource "aws_lb_listener" "public_alb_to_web_tg"');
     expect(hcl).toContain('load_balancer_arn = aws_lb.public_alb.arn');
     expect(hcl).toMatch(/default_action \{\s+type\s+= "forward"\s+target_group_arn = aws_lb_target_group\.web_tg\.arn/);
+    expect(hcl).toContain('load_balancer_type = "network"');
+    expect(hcl).toContain('resource "aws_lb_listener" "public_nlb_to_tcp_tg"');
+    expect(hcl).toContain('resource "aws_internet_gateway" "main_igw"');
+    expect(hcl).toContain('lambda.amazonaws.com');
+    expect(hcl).toContain('ecs-tasks.amazonaws.com');
     expect(hcl).toMatch(
       /resource "aws_lb_target_group_attachment" "web_tg_to_web" \{\s+target_group_arn = aws_lb_target_group\.web_tg\.arn/,
     );

@@ -1,6 +1,6 @@
 import type { Materializer } from './materialize.js';
 import { registerMaterializer } from './materialize.js';
-import { numberValue, rawValue, stringValue, traversal } from './ast.js';
+import { numberValue, rawValue, stringValue, boolValue, traversal } from './ast.js';
 import { secretValueRef } from './aws-emitters.js';
 import type { ArchvizDocument } from '@archviz/core';
 
@@ -452,6 +452,8 @@ export const sqsIamMaterializer = apiIamMaterializer;
 
 /**
  * Shared `reads-from` edge: SQS / S3 / DynamoDB get consume IAM on the assumed role.
+ * Lambda → SQS also emits `aws_lambda_event_source_mapping` so the function is
+ * actually invoked (IAM alone is not enough).
  */
 export const readsFromMaterializer: Materializer = (ctx) => {
   if (
@@ -459,7 +461,38 @@ export const readsFromMaterializer: Materializer = (ctx) => {
     ctx.target.type === 'aws/s3-bucket' ||
     ctx.target.type === 'aws/dynamodb-table'
   ) {
-    return apiIamMaterializer(ctx);
+    const iam = apiIamMaterializer(ctx);
+    const extraBlocks = [...(iam.extraBlocks ?? [])];
+
+    if (ctx.source.type === 'aws/lambda-function' && ctx.target.type === 'aws/sqs-queue') {
+      const lambdaName = ctx.names.get(ctx.source.id);
+      const queueName = ctx.names.get(ctx.target.id);
+      if (lambdaName && queueName) {
+        extraBlocks.push({
+          blockType: 'resource',
+          labels: ['aws_lambda_event_source_mapping', `${lambdaName}_from_${queueName}`],
+          attributes: [
+            {
+              name: 'event_source_arn',
+              value: traversal('aws_sqs_queue', queueName, 'arn'),
+            },
+            {
+              name: 'function_name',
+              value: traversal('aws_lambda_function', lambdaName, 'arn'),
+            },
+            { name: 'batch_size', value: numberValue(10) },
+            { name: 'enabled', value: boolValue(true) },
+          ],
+          blocks: [],
+          comment: `reads-from: ${ctx.source.name} ← ${ctx.target.name} (event source mapping)`,
+        });
+      }
+    }
+
+    return {
+      ...iam,
+      extraBlocks: extraBlocks.length > 0 ? extraBlocks : undefined,
+    };
   }
   return {
     comment: `annotation: ${ctx.source.name} ${ctx.relationship.relationship} ${ctx.target.name} (no HCL emitted)`,
