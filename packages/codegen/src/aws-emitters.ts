@@ -157,15 +157,13 @@ export function registerAwsEmitters(): void {
         const rdsDef = ctx.registry.get(target.type);
         if (!rdsName || !rdsDef) continue;
         const tfType = rdsDef.terraform.resourceType;
-        const dbName =
-          typeof target.properties.db_name === 'string' && target.properties.db_name.trim()
-            ? target.properties.db_name.trim()
-            : 'app';
+        // Use the RDS attribute (not the diagram literal): LocalStack often
+        // forces DBName to "test" even when Terraform asked for "app".
         // Terraform interpolations inside the jsonencode string — password may
         // itself be a ref (uses-secret) on the aws_db_instance resource.
         envEntries.push({
           name: 'DATABASE_URL',
-          valueExpr: `"postgres://\${${tfType}.${rdsName}.username}:\${${tfType}.${rdsName}.password}@\${${tfType}.${rdsName}.address}:\${${tfType}.${rdsName}.port}/${dbName}?sslmode=disable"`,
+          valueExpr: `"postgres://\${${tfType}.${rdsName}.username}:\${${tfType}.${rdsName}.password}@\${${tfType}.${rdsName}.address}:\${${tfType}.${rdsName}.port}/\${coalesce(${tfType}.${rdsName}.db_name, \"postgres\")}?sslmode=disable"`,
         });
         break;
       }
