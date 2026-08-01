@@ -120,10 +120,11 @@ export async function resolveLocalstackServiceLinks(opts: {
   const slug = opts.projectName ? projectSlug(opts.projectName) : '';
 
   if (!opts.rediscover) {
+    // Never cross-contaminate projects: only fall back to "latest" when no
+    // project was specified (legacy single-workspace callers).
     const cached =
       (await readServiceLinks(workspaceDir)) ??
-      (opts.projectName ? null : await findLatestServiceLinks(opts.cwd)) ??
-      (await findLatestServiceLinks(opts.cwd));
+      (opts.projectName?.trim() ? null : await findLatestServiceLinks(opts.cwd));
     if (cached) {
       return {
         ok: true,
@@ -136,19 +137,23 @@ export async function resolveLocalstackServiceLinks(opts: {
 
   const tfFiles = await readTfFiles(workspaceDir);
   if (Object.keys(tfFiles).length === 0) {
-    const latest = await findLatestServiceLinks(opts.cwd);
-    if (latest) {
-      return {
-        ok: true,
-        links: latest,
-        message: `Restored LocalStack URLs from last Apply (${latest.url})`,
-        source: 'cache',
-      };
+    if (!opts.projectName?.trim()) {
+      const latest = await findLatestServiceLinks(opts.cwd);
+      if (latest) {
+        return {
+          ok: true,
+          links: latest,
+          message: `Restored LocalStack URLs from last Apply (${latest.url})`,
+          source: 'cache',
+        };
+      }
     }
     return {
       ok: false,
       links: null,
-      message: 'No LocalStack workspace terraform found — run LocalStack Apply once.',
+      message: opts.projectName?.trim()
+        ? `No LocalStack Apply found for "${opts.projectName.trim()}" — run LocalStack Apply for this diagram.`
+        : 'No LocalStack workspace terraform found — run LocalStack Apply once.',
       source: 'none',
     };
   }

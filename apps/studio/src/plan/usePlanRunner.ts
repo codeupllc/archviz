@@ -108,15 +108,28 @@ function serviceLinksFromOpsEvents(
 }
 
 const RUNNER_URL_KEY = 'archviz:runner-url:v1';
-const SERVICE_LINKS_KEY = 'archviz:localstack-service:v1';
+const SERVICE_LINKS_KEY_PREFIX = 'archviz:localstack-service:v1:';
+/** @deprecated pre-project-scoped cache — cleared on read so Open UI cannot leak across diagrams */
+const SERVICE_LINKS_KEY_LEGACY = 'archviz:localstack-service:v1';
 const DEFAULT_RUNNER_URL = 'http://127.0.0.1:4180';
 const HEALTH_POLL_MS = 5000;
 
 type ServiceLinks = { url: string; swaggerUrl: string; webUrl: string };
 
-function readCachedServiceLinks(): ServiceLinks | null {
+function serviceLinksStorageKey(projectName?: string | null): string {
+  const slug = (projectName ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return SERVICE_LINKS_KEY_PREFIX + (slug || '_default');
+}
+
+function readCachedServiceLinks(projectName?: string | null): ServiceLinks | null {
   try {
-    const raw = window.localStorage.getItem(SERVICE_LINKS_KEY);
+    // Drop the old global key so watch-app URLs cannot shadow Agape (etc.).
+    window.localStorage.removeItem(SERVICE_LINKS_KEY_LEGACY);
+    const raw = window.localStorage.getItem(serviceLinksStorageKey(projectName));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ServiceLinks>;
     if (
@@ -132,17 +145,19 @@ function readCachedServiceLinks(): ServiceLinks | null {
   return null;
 }
 
-function writeCachedServiceLinks(links: ServiceLinks): void {
+function writeCachedServiceLinks(links: ServiceLinks, projectName?: string | null): void {
   try {
-    window.localStorage.setItem(SERVICE_LINKS_KEY, JSON.stringify(links));
+    window.localStorage.removeItem(SERVICE_LINKS_KEY_LEGACY);
+    window.localStorage.setItem(serviceLinksStorageKey(projectName), JSON.stringify(links));
   } catch {
     /* ignore */
   }
 }
 
-function clearCachedServiceLinks(): void {
+function clearCachedServiceLinks(projectName?: string | null): void {
   try {
-    window.localStorage.removeItem(SERVICE_LINKS_KEY);
+    window.localStorage.removeItem(SERVICE_LINKS_KEY_LEGACY);
+    window.localStorage.removeItem(serviceLinksStorageKey(projectName));
   } catch {
     /* ignore */
   }
@@ -203,8 +218,11 @@ async function readNdjsonStream(
  * Talks to the local archviz-runner companion: polls /api/health and streams
  * terraform plan / LocalStack apply-destroy output. Reattaches after refresh
  * when the runner still has an in-flight op (`/api/ops/stream`).
+ *
+ * Pass `projectName` (diagram meta.name) so Open UI / Open API URLs stay scoped
+ * to the active project — never reuse another diagram's LocalStack ECS port.
  */
-export function usePlanRunner() {
+export function usePlanRunner(projectName?: string | null) {
   const [connected, setConnected] = useState(false);
   const [runnerDir, setRunnerDir] = useState<string | null>(null);
   const [terraformVersion, setTerraformVersion] = useState<string | null>(null);
@@ -222,6 +240,16 @@ export function usePlanRunner() {
   const opKindRef = useRef<OpKind | null>(null);
   const reattachAttempted = useRef(false);
   const hydrateLinksAttempted = useRef(false);
+  const projectNameRef = useRef(projectName);
+  projectNameRef.current = projectName;
+
+  // Switching diagrams must drop the previous project's ECS URLs immediately.
+  useEffect(() => {
+    setLocalstackServiceUrl(null);
+    setLocalstackSwaggerUrl(null);
+    setLocalstackWebUrl(null);
+    hydrateLinksAttempted.current = false;
+  }, [projectName]);
 
   const appendLog = useCallback((text: string) => {
     logRef.current += text;
@@ -266,7 +294,7 @@ export function usePlanRunner() {
           setLocalstackServiceUrl(links.url);
           setLocalstackSwaggerUrl(links.swaggerUrl);
           setLocalstackWebUrl(links.webUrl);
-          writeCachedServiceLinks(links);
+          writeCachedServiceLinks(links, projectNameRef.current);
           appendLog(
             `[LocalStack] API ${event.url} — Swagger ${event.swaggerUrl} — UI ${webUrl}\n`,
           );
@@ -381,44 +409,32 @@ export function usePlanRunner() {
           void attachToOpsStream(body.op.kind);
         }
 
-        // After Apply (or runner restart), restore ECS URLs so Open API / Open UI
-        // work without forcing another Apply.
+        // After Apply (or runner restart), restore ECS URLs for THIS project only.
         if (!hydrateLinksAttempted.current && !body.busy && !runningRef.current) {
           hydrateLinksAttempted.current = true;
+          const project = projectNameRef.current;
           const applyLinks = (links: ServiceLinks | null | undefined) => {
             if (!links?.url || !links.swaggerUrl || !links.webUrl) return false;
             setLocalstackServiceUrl(links.url);
             setLocalstackSwaggerUrl(links.swaggerUrl);
             setLocalstackWebUrl(links.webUrl);
-            writeCachedServiceLinks(links);
+            writeCachedServiceLinks(links, project);
             return true;
           };
           try {
-            const opsRes = await fetch(`${getRunnerUrl()}/api/ops/current`);
-            if (!cancelled && opsRes.ok) {
-              const ops = (await opsRes.json()) as {
-                kind?: string;
-                events?: RunnerEvent[];
-                lastService?: ServiceLinks | null;
-              };
-              const fromEvents =
-                ops.kind === 'apply' || ops.kind === 'destroy'
-                  ? serviceLinksFromOpsEvents(ops.events ?? [])
-                  : null;
-              if (applyLinks(fromEvents) || applyLinks(ops.lastService ?? null)) {
-                return;
-              }
-            }
-
-            const svcRes = await fetch(`${getRunnerUrl()}/api/localstack/service`);
+            const q = new URLSearchParams();
+            if (project?.trim()) q.set('project', project.trim());
+            const svcRes = await fetch(
+              `${getRunnerUrl()}/api/localstack/service${q.toString() ? `?${q}` : ''}`,
+            );
             if (!cancelled && svcRes.ok) {
               const svc = (await svcRes.json()) as ServiceLinks & { ok?: boolean };
               if (svc.ok !== false && applyLinks(svc)) return;
             }
 
-            applyLinks(readCachedServiceLinks());
+            applyLinks(readCachedServiceLinks(project));
           } catch {
-            applyLinks(readCachedServiceLinks());
+            applyLinks(readCachedServiceLinks(project));
           }
         }
       } catch {
@@ -437,7 +453,7 @@ export function usePlanRunner() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [attachToOpsStream]);
+  }, [attachToOpsStream, projectName]);
 
   const streamNdjson = useCallback(
     async (path: string, body: unknown, kind: OpKind) => {
@@ -455,7 +471,7 @@ export function usePlanRunner() {
         setLocalstackSwaggerUrl(null);
         setLocalstackWebUrl(null);
         hydrateLinksAttempted.current = false;
-        if (kind === 'destroy') clearCachedServiceLinks();
+        if (kind === 'destroy') clearCachedServiceLinks(projectNameRef.current);
       }
       setStatus(statusForOpKind(kind));
 
@@ -580,9 +596,10 @@ export function usePlanRunner() {
    */
   const ensureLocalstackServiceUrls = useCallback(
     async (
-      projectName?: string | null,
+      name?: string | null,
       opts?: { force?: boolean },
     ): Promise<ServiceLinks | null> => {
+      const project = name?.trim() || projectNameRef.current?.trim() || null;
       if (
         !opts?.force &&
         localstackServiceUrl &&
@@ -600,24 +617,44 @@ export function usePlanRunner() {
         setLocalstackServiceUrl(links.url);
         setLocalstackSwaggerUrl(links.swaggerUrl);
         setLocalstackWebUrl(links.webUrl);
-        writeCachedServiceLinks(links);
+        writeCachedServiceLinks(links, project);
         return links;
       };
       try {
         const q = new URLSearchParams();
-        if (projectName?.trim()) q.set('project', projectName.trim());
+        if (project) q.set('project', project);
         // Prefer cache unless force; rediscover when force or cache miss handled server-side.
         if (opts?.force) q.set('rediscover', '1');
         const res = await fetch(`${getRunnerUrl()}/api/localstack/service?${q}`);
         if (res.ok) {
-          const body = (await res.json()) as ServiceLinks & { ok?: boolean };
-          const links = apply(body.ok === false ? null : body);
-          if (links) return links;
+          const body = (await res.json()) as ServiceLinks & {
+            ok?: boolean;
+            projectSlug?: string;
+          };
+          if (body.ok !== false) {
+            const want = project
+              ? project
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, '-')
+                  .replace(/^-+|-+$/g, '')
+              : '';
+            // Ignore a runner payload that belongs to a different diagram.
+            if (
+              !want ||
+              !body.projectSlug ||
+              body.projectSlug === want ||
+              body.projectSlug === project
+            ) {
+              const links = apply(body);
+              if (links) return links;
+            }
+          }
         }
       } catch {
         /* fall through */
       }
-      return apply(readCachedServiceLinks());
+      // Only fall back to this project's browser cache — never another diagram.
+      return apply(readCachedServiceLinks(project));
     },
     [localstackServiceUrl, localstackSwaggerUrl, localstackWebUrl],
   );

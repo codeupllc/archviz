@@ -18,7 +18,7 @@ export function CodePanel() {
   const { mode } = useExportSettings();
   const { exportTf, blocked, canPickLocation } = useExportTerraform();
   const { currentProjectId } = useProjectContext();
-  const plan = usePlanRunner();
+  const plan = usePlanRunner(archvizDoc.meta.name);
   const [activeFile, setActiveFile] = useState<string | null>(null);
 
   const { files, requiredVariables } = useMemo(() => {
