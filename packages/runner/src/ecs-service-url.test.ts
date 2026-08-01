@@ -48,6 +48,44 @@ resource "aws_ecs_cluster" "c" {
       containerPort: 80,
     });
   });
+
+  it('prefers the API ECS service over a canvas web tier', () => {
+    const files = {
+      'compute.tf': `
+resource "aws_ecs_cluster" "app" {
+  name = "app-cluster"
+}
+
+resource "aws_ecs_service" "watch_service" {
+  name = "app-service"
+}
+
+resource "aws_ecs_service" "watch_app_web_svc" {
+  name = "watch-app-web"
+}
+
+resource "aws_ecs_task_definition" "api" {
+  container_definitions = jsonencode([{
+    name = "api"
+    portMappings = [{ containerPort = 80 }]
+    environment = [{ name = "DATABASE_URL", value = "postgres://x" }]
+  }])
+}
+
+resource "aws_ecs_task_definition" "web" {
+  container_definitions = jsonencode([{
+    name = "web"
+    portMappings = [{ containerPort = 8080 }]
+  }])
+}
+`,
+    };
+    expect(parseEcsClusterAndService(files)).toEqual({
+      clusterName: 'app-cluster',
+      serviceName: 'app-service',
+      containerPort: 80,
+    });
+  });
 });
 
 describe('parseDockerPorts', () => {

@@ -120,6 +120,7 @@ Every canvas edge should answer: **what Terraform must this become?** Not every 
 | Access pattern | What AWS needs | Archviz edge today | Materializes? | Gap / next deepen |
 |---|---|---|---|---|
 | Compute → RDS / Aurora / ElastiCache | Network path (SG allow) | `connects-to` → `network-service` | **Yes** — `sg-rule-pair` | Optional later: IAM DB auth (rare); port-specific rules |
+| ECS Service → ECS Service (peer) | Network path (SG allow) | `connects-to` → `network-service` | **Yes** — `sg-rule-pair` (ECS is also a `network-service`) | ALB/NLB in front of peers when needed |
 | Compute → Secrets / SSM (inject) | Value/ARN wiring + often IAM | `uses-secret` | **Yes** — value ref + ECS exec-role policy | — |
 | Compute → SQS consume / produce | IAM on workload role (+ ESM for Lambda consume) | `reads-from` / `writes-to` | **Yes** — `api-iam` + Lambda `aws_lambda_event_source_mapping` | DynamoDB Streams / Kinesis ESM |
 | Compute → S3 / DynamoDB | IAM on workload role | `reads-from` / `writes-to` | **Yes** — same `api-iam` pattern (swappable on edge label) | Finer-grained actions / KMS |

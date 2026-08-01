@@ -113,6 +113,7 @@ export function CodePanel() {
           warnings={plan.warnings}
           running={plan.running}
           localstackSwaggerUrl={plan.localstackSwaggerUrl}
+          localstackWebUrl={plan.localstackWebUrl}
         />
         <div className="diagnostics">
           <div className="diagnostics__title">Diagnostics ({diagnostics.length})</div>

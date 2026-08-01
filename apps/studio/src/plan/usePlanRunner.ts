@@ -10,7 +10,7 @@ type RunnerEvent =
   | { type: 'output'; stream: 'stdout' | 'stderr'; text: string }
   | { type: 'info'; message: string }
   | { type: 'warning'; message: string }
-  | { type: 'service'; url: string; swaggerUrl: string }
+  | { type: 'service'; url: string; swaggerUrl: string; webUrl?: string }
   | { type: 'exit'; code: number; ok: boolean; changes: boolean | null }
   | { type: 'error'; message: string };
 
@@ -72,11 +72,81 @@ export interface PlanRunnerState {
   localstackServiceUrl: string | null;
   /** Swagger UI on that task (…/swagger/). Cleared on destroy / new apply. */
   localstackSwaggerUrl: string | null;
+  /** Generated admin UI on that task (…/web/). Cleared on destroy / new apply. */
+  localstackWebUrl: string | null;
+}
+
+function webUrlFromServiceBase(url: string): string {
+  return `${url.replace(/\/$/, '')}/web/`;
+}
+
+/** Restore LocalStack ECS links after refresh from the runner’s last Apply. */
+function serviceLinksFromOpsEvents(
+  events: RunnerEvent[],
+): { url: string; swaggerUrl: string; webUrl: string } | null {
+  let last: { url: string; swaggerUrl: string; webUrl: string } | null = null;
+  let applyOk = false;
+  for (const event of events) {
+    if (event.type === 'service') {
+      last = {
+        url: event.url,
+        swaggerUrl: event.swaggerUrl,
+        webUrl: event.webUrl ?? webUrlFromServiceBase(event.url),
+      };
+    }
+    if (event.type === 'exit' && event.ok) applyOk = true;
+    if (event.type === 'exit' && !event.ok) {
+      last = null;
+      applyOk = false;
+    }
+    if (event.type === 'error') {
+      last = null;
+      applyOk = false;
+    }
+  }
+  return applyOk ? last : null;
 }
 
 const RUNNER_URL_KEY = 'archviz:runner-url:v1';
+const SERVICE_LINKS_KEY = 'archviz:localstack-service:v1';
 const DEFAULT_RUNNER_URL = 'http://127.0.0.1:4180';
 const HEALTH_POLL_MS = 5000;
+
+type ServiceLinks = { url: string; swaggerUrl: string; webUrl: string };
+
+function readCachedServiceLinks(): ServiceLinks | null {
+  try {
+    const raw = window.localStorage.getItem(SERVICE_LINKS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ServiceLinks>;
+    if (
+      typeof parsed.url === 'string' &&
+      typeof parsed.swaggerUrl === 'string' &&
+      typeof parsed.webUrl === 'string'
+    ) {
+      return { url: parsed.url, swaggerUrl: parsed.swaggerUrl, webUrl: parsed.webUrl };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function writeCachedServiceLinks(links: ServiceLinks): void {
+  try {
+    window.localStorage.setItem(SERVICE_LINKS_KEY, JSON.stringify(links));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearCachedServiceLinks(): void {
+  try {
+    window.localStorage.removeItem(SERVICE_LINKS_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function getRunnerUrl(): string {
   try {
@@ -145,11 +215,13 @@ export function usePlanRunner() {
   const [summary, setSummary] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [localstackServiceUrl, setLocalstackServiceUrl] = useState<string | null>(null);
+  const [localstackWebUrl, setLocalstackWebUrl] = useState<string | null>(null);
   const [localstackSwaggerUrl, setLocalstackSwaggerUrl] = useState<string | null>(null);
   const runningRef = useRef(false);
   const logRef = useRef('');
   const opKindRef = useRef<OpKind | null>(null);
   const reattachAttempted = useRef(false);
+  const hydrateLinksAttempted = useRef(false);
 
   const appendLog = useCallback((text: string) => {
     logRef.current += text;
@@ -188,11 +260,18 @@ export function usePlanRunner() {
           appendLog(`[warning] ${event.message}\n`);
           setWarnings((prev) => [...prev, event.message]);
           break;
-        case 'service':
-          setLocalstackServiceUrl(event.url);
-          setLocalstackSwaggerUrl(event.swaggerUrl);
-          appendLog(`[LocalStack] API ${event.url} — Swagger ${event.swaggerUrl}\n`);
+        case 'service': {
+          const webUrl = event.webUrl ?? webUrlFromServiceBase(event.url);
+          const links = { url: event.url, swaggerUrl: event.swaggerUrl, webUrl };
+          setLocalstackServiceUrl(links.url);
+          setLocalstackSwaggerUrl(links.swaggerUrl);
+          setLocalstackWebUrl(links.webUrl);
+          writeCachedServiceLinks(links);
+          appendLog(
+            `[LocalStack] API ${event.url} — Swagger ${event.swaggerUrl} — UI ${webUrl}\n`,
+          );
           break;
+        }
         case 'exit':
           if (event.ok) {
             setStatus('done');
@@ -301,6 +380,47 @@ export function usePlanRunner() {
           reattachAttempted.current = true;
           void attachToOpsStream(body.op.kind);
         }
+
+        // After Apply (or runner restart), restore ECS URLs so Open API / Open UI
+        // work without forcing another Apply.
+        if (!hydrateLinksAttempted.current && !body.busy && !runningRef.current) {
+          hydrateLinksAttempted.current = true;
+          const applyLinks = (links: ServiceLinks | null | undefined) => {
+            if (!links?.url || !links.swaggerUrl || !links.webUrl) return false;
+            setLocalstackServiceUrl(links.url);
+            setLocalstackSwaggerUrl(links.swaggerUrl);
+            setLocalstackWebUrl(links.webUrl);
+            writeCachedServiceLinks(links);
+            return true;
+          };
+          try {
+            const opsRes = await fetch(`${getRunnerUrl()}/api/ops/current`);
+            if (!cancelled && opsRes.ok) {
+              const ops = (await opsRes.json()) as {
+                kind?: string;
+                events?: RunnerEvent[];
+                lastService?: ServiceLinks | null;
+              };
+              const fromEvents =
+                ops.kind === 'apply' || ops.kind === 'destroy'
+                  ? serviceLinksFromOpsEvents(ops.events ?? [])
+                  : null;
+              if (applyLinks(fromEvents) || applyLinks(ops.lastService ?? null)) {
+                return;
+              }
+            }
+
+            const svcRes = await fetch(`${getRunnerUrl()}/api/localstack/service`);
+            if (!cancelled && svcRes.ok) {
+              const svc = (await svcRes.json()) as ServiceLinks & { ok?: boolean };
+              if (svc.ok !== false && applyLinks(svc)) return;
+            }
+
+            applyLinks(readCachedServiceLinks());
+          } catch {
+            applyLinks(readCachedServiceLinks());
+          }
+        }
       } catch {
         if (!cancelled) {
           setConnected(false);
@@ -333,6 +453,9 @@ export function usePlanRunner() {
       if (kind === 'apply' || kind === 'destroy') {
         setLocalstackServiceUrl(null);
         setLocalstackSwaggerUrl(null);
+        setLocalstackWebUrl(null);
+        hydrateLinksAttempted.current = false;
+        if (kind === 'destroy') clearCachedServiceLinks();
       }
       setStatus(statusForOpKind(kind));
 
@@ -451,6 +574,54 @@ export function usePlanRunner() {
     await streamNdjson('/api/localstack/start', {}, 'start');
   }, [streamNdjson]);
 
+  /**
+   * Restore LocalStack ECS URLs without Apply (disk cache + live rediscovery).
+   * Pass force=true from Open UI/API so a runner restart / port change is picked up.
+   */
+  const ensureLocalstackServiceUrls = useCallback(
+    async (
+      projectName?: string | null,
+      opts?: { force?: boolean },
+    ): Promise<ServiceLinks | null> => {
+      if (
+        !opts?.force &&
+        localstackServiceUrl &&
+        localstackSwaggerUrl &&
+        localstackWebUrl
+      ) {
+        return {
+          url: localstackServiceUrl,
+          swaggerUrl: localstackSwaggerUrl,
+          webUrl: localstackWebUrl,
+        };
+      }
+      const apply = (links: ServiceLinks | null | undefined) => {
+        if (!links?.url || !links.swaggerUrl || !links.webUrl) return null;
+        setLocalstackServiceUrl(links.url);
+        setLocalstackSwaggerUrl(links.swaggerUrl);
+        setLocalstackWebUrl(links.webUrl);
+        writeCachedServiceLinks(links);
+        return links;
+      };
+      try {
+        const q = new URLSearchParams();
+        if (projectName?.trim()) q.set('project', projectName.trim());
+        // Prefer cache unless force; rediscover when force or cache miss handled server-side.
+        if (opts?.force) q.set('rediscover', '1');
+        const res = await fetch(`${getRunnerUrl()}/api/localstack/service?${q}`);
+        if (res.ok) {
+          const body = (await res.json()) as ServiceLinks & { ok?: boolean };
+          const links = apply(body.ok === false ? null : body);
+          if (links) return links;
+        }
+      } catch {
+        /* fall through */
+      }
+      return apply(readCachedServiceLinks());
+    },
+    [localstackServiceUrl, localstackSwaggerUrl, localstackWebUrl],
+  );
+
   const running =
     status === 'initializing' ||
     status === 'planning' ||
@@ -470,6 +641,7 @@ export function usePlanRunner() {
     warnings,
     localstackServiceUrl,
     localstackSwaggerUrl,
+    localstackWebUrl,
   };
 
   return {
@@ -479,5 +651,6 @@ export function usePlanRunner() {
     runLocalstackApply,
     runLocalstackDestroy,
     startLocalstack,
+    ensureLocalstackServiceUrls,
   };
 }

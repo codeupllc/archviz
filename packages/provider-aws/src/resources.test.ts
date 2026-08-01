@@ -53,6 +53,12 @@ describe('aws resource definitions', () => {
         ?.materialize.strategy,
     ).toBe('sg-rule-pair');
 
+    // Peer ECS (e.g. UI service → API service) uses the same SG-path edge.
+    expect(
+      registry.findConnectionRule('aws/ecs-service', 'connects-to', 'aws/ecs-service')
+        ?.materialize.strategy,
+    ).toBe('sg-rule-pair');
+
     expect(
       registry.findConnectionRule('aws/ec2-instance', 'connects-to', 'aws/s3-bucket'),
     ).toBeUndefined();

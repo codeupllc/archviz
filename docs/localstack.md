@@ -36,6 +36,12 @@ If no Dockerfile was sent, Apply still succeeds but emits a warning — containe
 When an ECS **service** `connects-to` an RDS instance (and `runs-task` a task definition), codegen injects a container `DATABASE_URL` environment variable pointing at that `aws_db_instance` (username/password/host/port/`db_name` from Terraform attributes). Without the edge, SQL apps on LocalStack ECS cannot reach RDS.
 
 LocalStack often reports `DBName=test` even when the diagram set `db_name=app`, so the URL uses `coalesce(aws_db_instance.*.db_name, "postgres")` rather than a hard-coded diagram string.
+
+The Go scaffold **pings with retries** and applies `app/internal/db/schema.sql` on startup (`EnsureSchema`). Without that, LocalStack RDS has no tables (unlike `docker compose`, which mounts schema into `docker-entrypoint-initdb.d`).
+
+When the canvas has a separate **web** ECS tier, Studio **Open UI / Open LocalStack API** resolve the **API** service (the task with `DATABASE_URL`), not the web-only task.
+
+Apply URLs are persisted under `terraform-out/<project>/localstack/.archviz-service.json` and restored after a runner restart via `GET /api/localstack/service` (Studio also caches them in `localStorage`). You should **not** need to Apply again just to Open UI — only when ECS is actually gone.
 Optional env (also loaded from `.env` when you start the runner — Archviz root, cwd, or sibling `archviz-enterprise/.env`):
 
 | Variable | Default | Purpose |

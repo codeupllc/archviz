@@ -18,6 +18,12 @@ import {
   withMutableEcrTags,
 } from './ecr-image.js';
 import { discoverLocalstackEcsServiceUrl } from './ecs-service-url.js';
+import {
+  clearServiceLinks,
+  findLatestServiceLinks,
+  resolveLocalstackServiceLinks,
+  writeServiceLinks,
+} from './localstack-service-links.js';
 import { createOpsSession, type OpKind } from './ops-session.js';
 import type { PlanEvent } from './plan-events.js';
 import {
@@ -291,6 +297,7 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       const version = await terraformVersion(terraformBin, cwd);
       const localstack = await ls.getStatus();
       const snap = ops.snapshot();
+      const lastService = await findLatestServiceLinks(cwd);
       sendJson(res, 200, {
         ok: true,
         cwd,
@@ -300,12 +307,35 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
         op: snap.busy
           ? { kind: snap.kind, startedAt: snap.startedAt, eventCount: snap.events.length }
           : null,
+        lastService,
       });
       return;
     }
 
     if (req.method === 'GET' && url === '/api/ops/current') {
-      sendJson(res, 200, ops.snapshot());
+      const snap = ops.snapshot();
+      const lastService = await findLatestServiceLinks(cwd);
+      sendJson(res, 200, { ...snap, lastService });
+      return;
+    }
+
+    if (req.method === 'GET' && url.startsWith('/api/localstack/service')) {
+      const parsedUrl = new URL(url, 'http://127.0.0.1');
+      const projectName = parsedUrl.searchParams.get('project');
+      const rediscover = parsedUrl.searchParams.get('rediscover') === '1';
+      const resolved = await resolveLocalstackServiceLinks({
+        cwd,
+        projectName,
+        region: 'us-east-1',
+        endpoint: ls.endpoint(),
+        rediscover,
+      });
+      sendJson(res, resolved.ok ? 200 : 404, {
+        ok: resolved.ok,
+        ...resolved.links,
+        message: resolved.message,
+        source: resolved.source,
+      });
       return;
     }
 
@@ -694,13 +724,25 @@ async function runPlanPipeline(args: {
         endpoint,
         onOutput,
       });
-      if (serviceResult.ok && serviceResult.url && serviceResult.swaggerUrl) {
+      if (
+        serviceResult.ok &&
+        serviceResult.url &&
+        serviceResult.swaggerUrl &&
+        serviceResult.webUrl
+      ) {
         emit({
           type: 'service',
           url: serviceResult.url,
           swaggerUrl: serviceResult.swaggerUrl,
+          webUrl: serviceResult.webUrl,
         });
         emit({ type: 'info', message: serviceResult.message });
+        await writeServiceLinks(workspaceDir, {
+          url: serviceResult.url,
+          swaggerUrl: serviceResult.swaggerUrl,
+          webUrl: serviceResult.webUrl,
+          projectSlug: project ? projectSlug(project.name) : '',
+        });
       } else {
         emit({ type: 'warning', message: serviceResult.message });
       }
@@ -724,6 +766,7 @@ async function runPlanPipeline(args: {
     localstackEnv,
   );
   if (localstack && destroyCode === 0) {
+    await clearServiceLinks(workspaceDir);
     emit({
       type: 'info',
       message: 'LocalStack workspace destroyed — previous ECS Swagger URL is no longer valid.',

@@ -31,6 +31,8 @@ export function PlanPanel(props: {
   embedded?: boolean;
   /** LocalStack ECS Swagger URL after Apply (API test path). */
   localstackSwaggerUrl?: string | null;
+  /** LocalStack ECS admin UI URL after Apply (…/web/). */
+  localstackWebUrl?: string | null;
 }) {
   const {
     status,
@@ -42,6 +44,7 @@ export function PlanPanel(props: {
     title = 'Plan',
     embedded = false,
     localstackSwaggerUrl = null,
+    localstackWebUrl = null,
   } = props;
   const [open, setOpen] = useState(true);
   const bodyRef = useRef<HTMLPreElement | null>(null);
@@ -57,23 +60,38 @@ export function PlanPanel(props: {
 
   if (status === 'idle') return null;
 
-  const swaggerLink =
-    localstackSwaggerUrl && !running ? (
-      <a
-        className="plan-panel__swagger"
-        href={localstackSwaggerUrl}
-        target="_blank"
-        rel="noreferrer"
-        onClick={(e) => e.stopPropagation()}
-      >
-        Open Swagger (LocalStack)
-      </a>
+  const serviceLinks =
+    !running && (localstackSwaggerUrl || localstackWebUrl) ? (
+      <>
+        {localstackSwaggerUrl ? (
+          <a
+            className="plan-panel__swagger"
+            href={localstackSwaggerUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Open Swagger (LocalStack)
+          </a>
+        ) : null}
+        {localstackWebUrl ? (
+          <a
+            className="plan-panel__swagger"
+            href={localstackWebUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Open UI (LocalStack)
+          </a>
+        ) : null}
+      </>
     ) : null;
 
   if (embedded) {
     return (
       <div className="plan-panel plan-panel--embedded">
-        {swaggerLink && <div className="plan-panel__actions">{swaggerLink}</div>}
+        {serviceLinks && <div className="plan-panel__actions">{serviceLinks}</div>}
         {warnings.length > 0 && (
           <ul className="plan-panel__warnings">
             {warnings.map((w, i) => (
@@ -113,7 +131,7 @@ export function PlanPanel(props: {
           )}
           <span className="plan-panel__chevron">{open ? '▾' : '▸'}</span>
         </button>
-        {swaggerLink}
+        {serviceLinks}
       </div>
       {open && warnings.length > 0 && (
         <ul className="plan-panel__warnings">
