@@ -18,6 +18,12 @@ import {
   withMutableEcrTags,
 } from './ecr-image.js';
 import { discoverLocalstackEcsServiceUrl } from './ecs-service-url.js';
+import {
+  clearServiceLinks,
+  findLatestServiceLinks,
+  resolveLocalstackServiceLinks,
+  writeServiceLinks,
+} from './localstack-service-links.js';
 import { createOpsSession, type OpKind } from './ops-session.js';
 import type { PlanEvent } from './plan-events.js';
 import {
@@ -134,6 +140,8 @@ interface PlanBody {
   region: string;
   /** Optional app build context (Dockerfile + sources) for LocalStack ECS image build. */
   appFiles: Record<string, string>;
+  /** On-disk app/ directory — preferred for docker build so binaries (JPEG/PNG) stay intact. */
+  appSourceDir: string | null;
 }
 
 async function parsePlanBody(req: http.IncomingMessage): Promise<PlanBody> {
@@ -144,6 +152,7 @@ async function parsePlanBody(req: http.IncomingMessage): Promise<PlanBody> {
     resourceTypes?: unknown;
     region?: unknown;
     appFiles?: unknown;
+    appSourceDir?: unknown;
   };
   if (
     !parsed.files ||
@@ -210,7 +219,15 @@ async function parsePlanBody(req: http.IncomingMessage): Promise<PlanBody> {
       ? parsed.region.trim()
       : 'us-east-1';
 
-  return { files, project, requiredVariables, resourceTypes, region, appFiles };
+  let appSourceDir: string | null = null;
+  if (parsed.appSourceDir !== undefined && parsed.appSourceDir !== null) {
+    if (typeof parsed.appSourceDir !== 'string' || parsed.appSourceDir.trim() === '') {
+      throw new Error('appSourceDir must be a non-empty string when provided');
+    }
+    appSourceDir = parsed.appSourceDir.trim();
+  }
+
+  return { files, project, requiredVariables, resourceTypes, region, appFiles, appSourceDir };
 }
 
 function workspaceDirFor(cwd: string, project: ProjectRef | null, localstack: boolean): string {
@@ -291,6 +308,7 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
       const version = await terraformVersion(terraformBin, cwd);
       const localstack = await ls.getStatus();
       const snap = ops.snapshot();
+      const lastService = await findLatestServiceLinks(cwd);
       sendJson(res, 200, {
         ok: true,
         cwd,
@@ -300,12 +318,35 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
         op: snap.busy
           ? { kind: snap.kind, startedAt: snap.startedAt, eventCount: snap.events.length }
           : null,
+        lastService,
       });
       return;
     }
 
     if (req.method === 'GET' && url === '/api/ops/current') {
-      sendJson(res, 200, ops.snapshot());
+      const snap = ops.snapshot();
+      const lastService = await findLatestServiceLinks(cwd);
+      sendJson(res, 200, { ...snap, lastService });
+      return;
+    }
+
+    if (req.method === 'GET' && url.startsWith('/api/localstack/service')) {
+      const parsedUrl = new URL(url, 'http://127.0.0.1');
+      const projectName = parsedUrl.searchParams.get('project');
+      const rediscover = parsedUrl.searchParams.get('rediscover') === '1';
+      const resolved = await resolveLocalstackServiceLinks({
+        cwd,
+        projectName,
+        region: 'us-east-1',
+        endpoint: ls.endpoint(),
+        rediscover,
+      });
+      sendJson(res, resolved.ok ? 200 : 404, {
+        ok: resolved.ok,
+        ...resolved.links,
+        message: resolved.message,
+        source: resolved.source,
+      });
       return;
     }
 
@@ -500,6 +541,7 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
           requiredVariables: body.requiredVariables,
           resourceTypes: body.resourceTypes,
           appFiles: body.appFiles,
+          appSourceDir: body.appSourceDir,
           localstack: true,
           action,
           region: body.region,
@@ -526,6 +568,7 @@ async function runPlanPipeline(args: {
   requiredVariables: string[];
   resourceTypes?: string[];
   appFiles?: Record<string, string>;
+  appSourceDir?: string | null;
   localstack: boolean;
   action: 'plan' | 'apply' | 'destroy';
   region: string;
@@ -539,6 +582,7 @@ async function runPlanPipeline(args: {
     requiredVariables,
     resourceTypes = [],
     appFiles = {},
+    appSourceDir = null,
     localstack,
     action,
     region,
@@ -676,6 +720,7 @@ async function runPlanPipeline(args: {
       });
       const imageResult = await buildAndPublishLocalstackImages({
         appFiles,
+        appSourceDir,
         terraformFiles: files,
         region,
         endpoint,
@@ -694,13 +739,25 @@ async function runPlanPipeline(args: {
         endpoint,
         onOutput,
       });
-      if (serviceResult.ok && serviceResult.url && serviceResult.swaggerUrl) {
+      if (
+        serviceResult.ok &&
+        serviceResult.url &&
+        serviceResult.swaggerUrl &&
+        serviceResult.webUrl
+      ) {
         emit({
           type: 'service',
           url: serviceResult.url,
           swaggerUrl: serviceResult.swaggerUrl,
+          webUrl: serviceResult.webUrl,
         });
         emit({ type: 'info', message: serviceResult.message });
+        await writeServiceLinks(workspaceDir, {
+          url: serviceResult.url,
+          swaggerUrl: serviceResult.swaggerUrl,
+          webUrl: serviceResult.webUrl,
+          projectSlug: project ? projectSlug(project.name) : '',
+        });
       } else {
         emit({ type: 'warning', message: serviceResult.message });
       }
@@ -724,6 +781,7 @@ async function runPlanPipeline(args: {
     localstackEnv,
   );
   if (localstack && destroyCode === 0) {
+    await clearServiceLinks(workspaceDir);
     emit({
       type: 'info',
       message: 'LocalStack workspace destroyed — previous ECS Swagger URL is no longer valid.',

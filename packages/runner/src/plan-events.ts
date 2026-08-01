@@ -7,6 +7,6 @@ export type PlanEvent =
   | { type: 'output'; stream: 'stdout' | 'stderr'; text: string }
   | { type: 'info'; message: string }
   | { type: 'warning'; message: string }
-  | { type: 'service'; url: string; swaggerUrl: string }
+  | { type: 'service'; url: string; swaggerUrl: string; webUrl: string }
   | { type: 'exit'; code: number; ok: boolean; changes: boolean | null }
   | { type: 'error'; message: string };

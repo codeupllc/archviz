@@ -10,7 +10,9 @@ export const ecsService = defineResource({
     kind: 'node',
     description: 'Keeps N copies of a Task Definition running on a Cluster',
   },
-  capabilities: ['compute', 'network-client'],
+  // network-service: peer services (e.g. UI ECS → API ECS) may connects-to
+  // this workload so sg-rule-pair opens the path between their SGs.
+  capabilities: ['compute', 'network-client', 'network-service'],
   nesting: {
     allowedParents: [{ type: 'aws/ecs-cluster', required: true }],
   },
