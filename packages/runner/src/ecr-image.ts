@@ -125,9 +125,19 @@ async function writeContextDir(files: Record<string, string>): Promise<string> {
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(dir, rel);
     await fs.mkdir(path.dirname(full), { recursive: true });
+    // Text-only path: binaries (images) must come from appSourceDir, not JSON UTF-8.
     await fs.writeFile(full, content, 'utf8');
   }
   return dir;
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function describeRepositoryUri(
@@ -191,6 +201,8 @@ export interface BuildPushResult {
  */
 export async function buildAndPublishLocalstackImages(opts: {
   appFiles: Record<string, string>;
+  /** Prefer an on-disk app/ dir (keeps JPEG/PNG binaries intact). */
+  appSourceDir?: string | null;
   terraformFiles: Record<string, string>;
   region: string;
   endpoint: string;
@@ -199,7 +211,10 @@ export async function buildAndPublishLocalstackImages(opts: {
 }): Promise<BuildPushResult> {
   const tag = opts.tag ?? 'latest';
   const context = normalizeAppBuildContext(opts.appFiles);
-  if (!context) {
+  const sourceDir = opts.appSourceDir?.trim() || '';
+  const useSourceDir = Boolean(sourceDir && (await pathExists(path.join(sourceDir, 'Dockerfile'))));
+
+  if (!useSourceDir && !context) {
     return {
       ok: false,
       targets: [],
@@ -218,14 +233,27 @@ export async function buildAndPublishLocalstackImages(opts: {
     };
   }
 
-  const contextDir = await writeContextDir(context.files);
+  let contextDir: string | null = null;
+  let cleanupContext = false;
+  let dockerfile = 'Dockerfile';
+  if (useSourceDir) {
+    contextDir = sourceDir;
+    opts.onOutput?.(
+      'stdout',
+      `Building image from on-disk app dir ${sourceDir} (preserves binary assets)\n`,
+    );
+  } else {
+    contextDir = await writeContextDir(context!.files);
+    cleanupContext = true;
+    dockerfile = context!.dockerfile;
+  }
   const localTag = `archviz-localstack-build:${tag}`;
   opts.onOutput?.('stdout', `Building image from Dockerfile → ${localTag}\n`);
 
   try {
     const build = await run(
       'docker',
-      ['build', '-f', context.dockerfile, '-t', localTag, '.'],
+      ['build', '-f', dockerfile, '-t', localTag, '.'],
       { cwd: contextDir },
     );
     opts.onOutput?.('stdout', build.stdout);
@@ -274,6 +302,8 @@ export async function buildAndPublishLocalstackImages(opts: {
       message: `Built and tagged ${targets.map((t) => `${t.repositoryName}:${t.tag}`).join(', ')} for LocalStack ECS.`,
     };
   } finally {
-    await fs.rm(contextDir, { recursive: true, force: true }).catch(() => undefined);
+    if (cleanupContext && contextDir) {
+      await fs.rm(contextDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }

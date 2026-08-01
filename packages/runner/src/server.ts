@@ -140,6 +140,8 @@ interface PlanBody {
   region: string;
   /** Optional app build context (Dockerfile + sources) for LocalStack ECS image build. */
   appFiles: Record<string, string>;
+  /** On-disk app/ directory — preferred for docker build so binaries (JPEG/PNG) stay intact. */
+  appSourceDir: string | null;
 }
 
 async function parsePlanBody(req: http.IncomingMessage): Promise<PlanBody> {
@@ -150,6 +152,7 @@ async function parsePlanBody(req: http.IncomingMessage): Promise<PlanBody> {
     resourceTypes?: unknown;
     region?: unknown;
     appFiles?: unknown;
+    appSourceDir?: unknown;
   };
   if (
     !parsed.files ||
@@ -216,7 +219,15 @@ async function parsePlanBody(req: http.IncomingMessage): Promise<PlanBody> {
       ? parsed.region.trim()
       : 'us-east-1';
 
-  return { files, project, requiredVariables, resourceTypes, region, appFiles };
+  let appSourceDir: string | null = null;
+  if (parsed.appSourceDir !== undefined && parsed.appSourceDir !== null) {
+    if (typeof parsed.appSourceDir !== 'string' || parsed.appSourceDir.trim() === '') {
+      throw new Error('appSourceDir must be a non-empty string when provided');
+    }
+    appSourceDir = parsed.appSourceDir.trim();
+  }
+
+  return { files, project, requiredVariables, resourceTypes, region, appFiles, appSourceDir };
 }
 
 function workspaceDirFor(cwd: string, project: ProjectRef | null, localstack: boolean): string {
@@ -530,6 +541,7 @@ export function createRunnerServer(options: RunnerOptions): http.Server {
           requiredVariables: body.requiredVariables,
           resourceTypes: body.resourceTypes,
           appFiles: body.appFiles,
+          appSourceDir: body.appSourceDir,
           localstack: true,
           action,
           region: body.region,
@@ -556,6 +568,7 @@ async function runPlanPipeline(args: {
   requiredVariables: string[];
   resourceTypes?: string[];
   appFiles?: Record<string, string>;
+  appSourceDir?: string | null;
   localstack: boolean;
   action: 'plan' | 'apply' | 'destroy';
   region: string;
@@ -569,6 +582,7 @@ async function runPlanPipeline(args: {
     requiredVariables,
     resourceTypes = [],
     appFiles = {},
+    appSourceDir = null,
     localstack,
     action,
     region,
@@ -706,6 +720,7 @@ async function runPlanPipeline(args: {
       });
       const imageResult = await buildAndPublishLocalstackImages({
         appFiles,
+        appSourceDir,
         terraformFiles: files,
         region,
         endpoint,

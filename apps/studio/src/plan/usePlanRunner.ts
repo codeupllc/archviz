@@ -28,6 +28,11 @@ export interface PlanRequestOptions {
    * When ECS is on the diagram, Apply builds and tags the image for LocalStack ECR.
    */
   appFiles?: Record<string, string>;
+  /**
+   * Absolute path to projects/<slug>/app on disk. Prefer this over appFiles so
+   * binary assets (JPEG/PNG) are not corrupted by UTF-8 JSON transport.
+   */
+  appSourceDir?: string | null;
 }
 
 export type PlanStatus =
@@ -563,6 +568,7 @@ export function usePlanRunner(projectName?: string | null) {
           requiredVariables: opts.requiredVariables,
           resourceTypes: opts.resourceTypes,
           appFiles: opts.appFiles,
+          appSourceDir: opts.appSourceDir,
         },
         'apply',
       );
